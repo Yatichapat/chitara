@@ -23,12 +23,12 @@ git clone https://github.com/Yatichapat/chitara.git
 cd chitara/backend
 ```
 
-2. Create and activate a virtual environment.
+2. Create virtual environment.
 
-bash
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
-~~~
+```
 
 3. Install dependencies.
 
@@ -59,8 +59,3 @@ python manage.py runserver
 
 - Open http://127.0.0.1:8000/songs/
 - Django admin is at http://127.0.0.1:8000/admin/
-
-## Notes
-
-- Database settings are configured in backend/config/settings.py.
-- This project currently expects PostgreSQL through environment variables.
