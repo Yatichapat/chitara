@@ -2,18 +2,6 @@
 
 Chitara is a web-based platform for AI-generated music.
 
-## Tech Stack
-
-- Python
-- Django
-- PostgreSQL
-
-## Prerequisites
-
-- Python 3.10+
-- PostgreSQL 14+
-- pip
-
 ## Install and Run
 
 1. Clone the project and move into the backend folder.
