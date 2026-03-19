@@ -37,19 +37,29 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-6. Run migrations.
+4. Run migrations.
 
 ```bash
 python manage.py migrate
 ```
 
-7. (Optional) Seed sample data.
+5. (Optional) Seed sample data.
 
 ```bash
 python manage.py seed
 ```
 
-8. Start the development server.
+6. Create admin superuser
+```bash
+python manage.py createsuperuser
+
+Enter:
+- Username
+- Email
+- Password
+```
+
+7. Start the development server and log in to Admin.
 
 ```bash
 python manage.py runserver
