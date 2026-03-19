@@ -67,5 +67,4 @@ python manage.py runserver
 
 ## Quick Check
 
-- Open http://127.0.0.1:8000/songs/
 - Django admin is at http://127.0.0.1:8000/admin/
