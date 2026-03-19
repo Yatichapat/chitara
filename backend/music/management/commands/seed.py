@@ -61,8 +61,9 @@ class Command(BaseCommand):
 
         self.stdout.write("Creating songs...")
 
-        for album in albums:
-            for _ in range(4):
+        for user in users:
+            user_albums = [a for a in albums if a.creator_id == user.user_id]
+            for _ in range(8):
                 song = Song.objects.create(
                     title=fake.word().capitalize() + " Song",
                     description=fake.sentence(),
@@ -73,9 +74,11 @@ class Command(BaseCommand):
                     genre=random.choice(genres),
                     mood=random.choice(moods),
                     occasion=random.choice(occasions),
-                    creator=album.creator,
-                    album=album,
+                    creator=user,
                 )
+
+                album_count = random.randint(1, min(3, len(user_albums)))
+                song.albums.add(*random.sample(user_albums, album_count))
                 songs.append(song)
 
         self.stdout.write("Creating shared links...")

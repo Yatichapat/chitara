@@ -61,12 +61,10 @@ class Song(ShareableContent):
         related_name='songs'
         )
     
-    album = models.ForeignKey(
-        Album, 
-        on_delete=models.SET_NULL, 
-        null=True, 
+    albums = models.ManyToManyField(
+        Album,
+        related_name='songs',
         blank=True,
-        related_name='songs'
     )
 
     def __str__(self):
