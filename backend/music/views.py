@@ -42,6 +42,8 @@ def get_songs(request):
     except Exception as e:
         return JsonResponse({"error": f"Error occurred: {e}"}, status=500)
 
+
+@csrf_exempt
 def create_song(request):
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed"}, status=405)
@@ -97,6 +99,7 @@ def create_song(request):
     return JsonResponse(_serialize_song(song), status=201)
 
 
+@csrf_exempt
 def update_song(request, song_id):
     if request.method not in ["PUT", "PATCH"]:
         return JsonResponse({"error": "Method not allowed"}, status=405)
@@ -144,6 +147,7 @@ def update_song(request, song_id):
     return JsonResponse(_serialize_song(song))
 
 
+@csrf_exempt
 def delete_song(request, song_id):
     if request.method != "DELETE":
         return JsonResponse({"error": "Method not allowed"}, status=405)
