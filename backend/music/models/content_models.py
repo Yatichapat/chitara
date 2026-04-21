@@ -31,6 +31,7 @@ class Song(ShareableContent):
 
     created_date = models.DateTimeField(auto_now_add=True)
     audio_file_path = models.CharField(max_length=500)
+    generation_task_id = models.CharField(max_length=255, blank=True, default="")
     generation_status = models.CharField(
         max_length=50,
         default=GenerationStatus.PENDING,

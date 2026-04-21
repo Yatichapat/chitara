@@ -9,6 +9,6 @@ class PrivacyLevel(models.TextChoices):
 
 class GenerationStatus(models.TextChoices):
     PENDING = "pending", "Pending"
-    IN_PROGRESS = "in_progress", "In Progress"
+    PROCESSING = "processing", "Processing"
     COMPLETED = "completed", "Completed"
     FAILED = "failed", "Failed"
