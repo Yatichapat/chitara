@@ -92,6 +92,16 @@ def _serialize_song(song):
     }
 
 
+def _serialize_album(album):
+    return {
+        "album_id": album.album_id,
+        "name": album.name,
+        "created_date": album.created_date.isoformat(),
+        "creator_id": album.creator_id,
+        "song_count": album.songs.count(),
+    }
+
+
 def _parse_json_body(request):
     try:
         return json.loads(request.body.decode("utf-8") or "{}")
@@ -234,6 +244,37 @@ def home(request):
 
 def album(request):
     return HttpResponse("Welcome to the Album Page!")
+
+
+@csrf_exempt
+def albums(request):
+    if request.method == "GET":
+        try:
+            records = [_serialize_album(record) for record in Album.objects.all()]
+            return JsonResponse({"albums": records})
+        except Exception as exc:
+            return _json_error(f"Error occurred: {exc}", 500)
+
+    if request.method == "POST":
+        data = _parse_json_body(request)
+        if data is None:
+            return _json_error("Invalid JSON payload", 400)
+
+        name = str(data.get("name", "")).strip()
+        if not name:
+            return _json_error("name is required", 400)
+
+        creator_id = data.get("creator_id")
+        creator = _get_creator(creator_id) if creator_id is not None else _get_default_creator()
+        if creator is None:
+            if creator_id is None:
+                return _json_error("No users available to own the album", 400)
+            return _json_error("creator_id does not exist", 400)
+
+        record = Album.objects.create(name=name, creator=creator)
+        return JsonResponse(_serialize_album(record), status=201)
+
+    return _json_error("Method not allowed", 405)
 
 
 def get_songs(request):

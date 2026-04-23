@@ -46,12 +46,7 @@ class SunoSongGeneratorStrategy(SongGeneratorStrategy):
         }
 
     def _callback_url(self):
-        callback_url = getattr(settings, "SUNO_CALLBACK_URL", "").strip()
-        if not callback_url:
-            raise ValueError(
-                "SUNO_CALLBACK_URL is required for the Suno generator."
-            )
-        return callback_url
+        return getattr(settings, "SUNO_CALLBACK_URL", "").strip()
 
     def _raise_for_api_error(self, data):
         if not isinstance(data, dict):
@@ -68,12 +63,14 @@ class SunoSongGeneratorStrategy(SongGeneratorStrategy):
         payload = {
             "customMode": True,
             "instrumental": True,
-            "callBackUrl": self._callback_url(),
             "model": "V4_5",
             "prompt": request_data["prompt"],
             "style": f'{request_data["genre"]}, {request_data["mood"]}',
             "title": request_data.get("title"),
         }
+        callback_url = self._callback_url()
+        if callback_url:
+            payload["callBackUrl"] = callback_url
 
         res = requests.post(
             f"{self.BASE_URL}/generate",

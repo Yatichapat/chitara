@@ -144,6 +144,37 @@ class SongGeneratorStrategyTests(TestCase):
         requests_module.post.assert_called_once()
 
     @override_settings(SUNO_API_KEY="test-token")
+    @override_settings(SUNO_CALLBACK_URL="")
+    def test_suno_strategy_allows_polling_without_callback_url(self):
+        from music.generation.suno_generator import SunoSongGeneratorStrategy
+
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "data": {
+                "taskId": "suno-task-12345",
+                "status": "PENDING",
+            }
+        }
+
+        requests_module = MagicMock()
+        requests_module.post.return_value = response
+
+        strategy = SunoSongGeneratorStrategy()
+        with patch.object(strategy, "_requests_module", return_value=requests_module):
+            strategy.generate(
+                {
+                    "prompt": "A calm piano melody",
+                    "title": "Study Session",
+                    "genre": "Ambient",
+                    "mood": "Calm",
+                }
+            )
+
+        payload = requests_module.post.call_args.kwargs["json"]
+        self.assertNotIn("callBackUrl", payload)
+
+    @override_settings(SUNO_API_KEY="test-token")
     @override_settings(SUNO_CALLBACK_URL="https://example.com/webhooks/suno")
     def test_suno_strategy_raises_on_api_error(self):
         from music.generation.suno_generator import SunoSongGeneratorStrategy

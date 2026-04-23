@@ -20,8 +20,20 @@ export interface Song {
   albums: number[];
 }
 
+export interface Album {
+  album_id: number;
+  name: string;
+  created_date: string;
+  creator_id: number;
+  song_count: number;
+}
+
 export interface SongsResponse {
   songs: Song[];
+}
+
+export interface AlbumsResponse {
+  albums: Album[];
 }
 
 export interface GenerateRequest {
