@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Plus, BookOpen, Music } from "lucide-react";
 import Link from "next/link";
 import Modal from "@/components/Modal";
+import { getStoredAuthUser } from "@/lib/auth";
 import { Album, AlbumsResponse, ApiError, SongsResponse } from "@/lib/types";
 
 function PlaylistCard({
@@ -50,6 +51,8 @@ export default function PlaylistsPage() {
   const [albumName, setAlbumName] = useState("");
   const [albums, setAlbums] = useState<Album[]>([]);
   const [libraryCount, setLibraryCount] = useState<number | null>(null);
+  const [error, setError] = useState("");
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   function formatDate(value: string): string {
     const date = new Date(value);
@@ -60,6 +63,9 @@ export default function PlaylistsPage() {
   }
 
   useEffect(() => {
+    const storedUser = getStoredAuthUser();
+    setCurrentUserId(storedUser?.user_id ?? null);
+
     async function loadPlaylistData() {
       try {
         const [songsResponse, albumsResponse] = await Promise.all([
@@ -69,12 +75,18 @@ export default function PlaylistsPage() {
 
         if (songsResponse.ok) {
           const songsPayload = (await songsResponse.json()) as SongsResponse;
-          setLibraryCount(songsPayload.songs?.length ?? 0);
+          const ownedSongs = storedUser
+            ? (songsPayload.songs || []).filter((song) => song.creator_id === storedUser.user_id)
+            : [];
+          setLibraryCount(ownedSongs.length);
         }
 
         if (albumsResponse.ok) {
           const albumsPayload = (await albumsResponse.json()) as AlbumsResponse;
-          setAlbums(albumsPayload.albums || []);
+          const ownedAlbums = storedUser
+            ? (albumsPayload.albums || []).filter((album) => album.creator_id === storedUser.user_id)
+            : [];
+          setAlbums(ownedAlbums);
         }
       } catch {
         // Keep fallback label if backend is unavailable.
@@ -86,9 +98,16 @@ export default function PlaylistsPage() {
 
   const handleCreateAlbum = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError("");
 
     const name = albumName.trim();
     if (!name) {
+      return;
+    }
+
+    const currentUser = getStoredAuthUser();
+    if (!currentUser) {
+      setError("Please sign in with Google before creating an album.");
       return;
     }
 
@@ -98,7 +117,10 @@ export default function PlaylistsPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({
+          name,
+          creator_id: currentUser.user_id,
+        }),
       });
 
       const payload = (await response.json()) as Album & ApiError;
@@ -109,8 +131,12 @@ export default function PlaylistsPage() {
       setAlbums((prev) => [payload, ...prev]);
       setIsAlbumModalOpen(false);
       setAlbumName("");
-    } catch {
-      // Keep modal open so user can retry.
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error
+          ? requestError.message
+          : "Failed to create album.";
+      setError(message);
     }
   };
 
@@ -130,6 +156,12 @@ export default function PlaylistsPage() {
         </button>
       </header>
 
+      {error && (
+        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       {/* Playlist Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
         {/* Library card — always first */}
@@ -137,9 +169,11 @@ export default function PlaylistsPage() {
           href="/playlist/library"
           name="Library"
           meta={
-            libraryCount === null
-              ? "All your generated songs"
-              : `${libraryCount} song${libraryCount !== 1 ? "s" : ""}`
+            currentUserId === null
+              ? "Sign in to view your songs"
+              : libraryCount === null
+                ? "All your generated songs"
+                : `${libraryCount} song${libraryCount !== 1 ? "s" : ""}`
           }
           isLibrary
         />

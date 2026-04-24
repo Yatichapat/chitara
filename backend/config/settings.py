@@ -130,6 +130,8 @@ USE_I18N = True
 
 USE_TZ = True
 
+SITE_ID = 1
+
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
@@ -139,3 +141,10 @@ STATIC_URL = 'static/'
 GENERATOR_STRATEGY = os.getenv("GENERATOR_STRATEGY", "mock")
 SUNO_API_KEY = os.getenv("SUNO_API_KEY", "")
 SUNO_CALLBACK_URL = os.getenv("SUNO_CALLBACK_URL", "")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI = os.getenv(
+    "GOOGLE_REDIRECT_URI",
+    "http://localhost:8000/accounts/google/login/callback/",
+)
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:3000")

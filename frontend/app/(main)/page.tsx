@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Sparkles, Loader2, CheckCircle2 } from "lucide-react";
 import Modal from "@/components/Modal";
+import { getStoredAuthUser } from "@/lib/auth";
 import { ApiError, GenerateRequest, Song } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 3000;
@@ -61,6 +62,13 @@ export default function Home() {
       occasion: formData.occasion.trim(),
     };
 
+    const currentUser = getStoredAuthUser();
+    if (!currentUser) {
+      setIsGenerating(false);
+      setError("Please sign in with Google before generating a song.");
+      return;
+    }
+
     try {
       const generateResponse = await fetch("/api/generate", {
         method: "POST",
@@ -70,6 +78,7 @@ export default function Home() {
         body: JSON.stringify({
           ...payload,
           description: formData.description.trim(),
+          creator_id: currentUser.user_id,
         }),
       });
 

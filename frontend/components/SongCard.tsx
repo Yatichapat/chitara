@@ -21,6 +21,7 @@ interface SongCardProps {
   title: string;
   genre: string;
   date: string;
+  audioSrc?: string;
   visibility?: "public" | "private" | "invite";
   songId?: number;
   isActive?: boolean;
@@ -44,6 +45,7 @@ export default function SongCard({
   title,
   genre,
   date,
+  audioSrc = "",
   visibility = "private",
   songId,
   isActive = false,
@@ -132,6 +134,25 @@ export default function SongCard({
     }
   }
 
+  function handleDownload() {
+    if (!audioSrc) {
+      return;
+    }
+
+    const safeTitle = (title || "song")
+      .replace(/[^a-zA-Z0-9-_\s]/g, "")
+      .trim()
+      .replace(/\s+/g, "_") || "song";
+    const filename = `${safeTitle}.mp3`;
+    const href = `/api/audio?src=${encodeURIComponent(audioSrc)}&download=1&filename=${encodeURIComponent(filename)}`;
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
   const VisibilityIcon =
     VISIBILITY_OPTIONS.find((o) => o.value === currentVisibility)?.icon ?? Lock;
 
@@ -181,6 +202,9 @@ export default function SongCard({
       <div className="flex items-center gap-2 flex-shrink-0 ml-4">
         {/* Download quick action */}
         <button
+          type="button"
+          onClick={handleDownload}
+          disabled={!audioSrc}
           className="hidden md:flex p-2 text-cafe-400 hover:text-cafe-800 hover:bg-cafe-50 rounded-full transition-colors"
           title="Download"
         >
@@ -232,6 +256,9 @@ export default function SongCard({
                   <div className="my-1 border-t border-cafe-100" />
 
                   <button
+                    type="button"
+                    onClick={handleDownload}
+                    disabled={!audioSrc}
                     className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-cafe-700 rounded-xl hover:bg-cafe-50 transition-colors md:hidden"
                   >
                     <Download size={16} className="text-cafe-500" />

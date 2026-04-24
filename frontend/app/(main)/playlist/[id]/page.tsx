@@ -5,6 +5,7 @@ import { ArrowLeft, Search } from "lucide-react";
 import Link from "next/link";
 import SongCard from "@/components/SongCard";
 import { usePlayback } from "@/components/PlaybackProvider";
+import { getStoredAuthUser } from "@/lib/auth";
 import { Album, AlbumsResponse, ApiError, Song, SongsResponse } from "@/lib/types";
 
 interface PageProps {
@@ -19,6 +20,7 @@ export default function PlaylistDetailPage({ params }: PageProps) {
   const [albums, setAlbums] = useState<Album[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   const isLibrary = id === "library";
   const albumId = Number(id);
@@ -26,6 +28,9 @@ export default function PlaylistDetailPage({ params }: PageProps) {
   const playlistName = isLibrary ? "Library" : selectedAlbum?.name || "Album";
 
   useEffect(() => {
+    const storedUser = getStoredAuthUser();
+    setCurrentUserId(storedUser?.user_id ?? null);
+
     async function loadSongs() {
       setIsLoading(true);
       setError("");
@@ -61,16 +66,20 @@ export default function PlaylistDetailPage({ params }: PageProps) {
   }, []);
 
   const playlistSongs = useMemo(() => {
+    const ownedSongs = currentUserId === null
+      ? []
+      : songs.filter((song) => song.creator_id === currentUserId);
+
     if (isLibrary) {
-      return songs;
+      return ownedSongs;
     }
 
     if (!Number.isInteger(albumId)) {
       return [];
     }
 
-    return songs.filter((song) => song.albums.includes(albumId));
-  }, [albumId, isLibrary, songs]);
+    return ownedSongs.filter((song) => song.albums.includes(albumId));
+  }, [albumId, currentUserId, isLibrary, songs]);
 
   const filteredSongs = playlistSongs.filter((song) => {
     const term = searchTerm.toLowerCase();
@@ -134,11 +143,19 @@ export default function PlaylistDetailPage({ params }: PageProps) {
       <header className="mb-8">
         <h1 className="text-4xl font-display font-bold text-cafe-900 mb-1">{playlistName}</h1>
         <p className="text-cafe-500 text-sm">
-          {isLibrary
+          {isLibrary && currentUserId === null
+            ? "Sign in to view your personal library."
+            : isLibrary
             ? "Every song you've generated, all in one place."
             : `${playlistSongs.length} song${playlistSongs.length !== 1 ? "s" : ""} in this album.`}
         </p>
       </header>
+
+      {isLibrary && currentUserId === null && (
+        <div className="mb-6 rounded-2xl border border-cafe-200 bg-white px-5 py-4 text-sm text-cafe-700 shadow-sm">
+          Sign in with Google to see your own library.
+        </div>
+      )}
 
       {/* Search */}
       <div className="relative mb-6">
@@ -160,6 +177,10 @@ export default function PlaylistDetailPage({ params }: PageProps) {
           <div className="text-center py-20 text-cafe-400">Loading songs...</div>
         ) : error ? (
           <div className="text-center py-20 text-red-500">{error}</div>
+        ) : isLibrary && currentUserId === null ? (
+          <div className="text-center py-20 text-cafe-400">
+            Please sign in to view your library.
+          </div>
         ) : filteredSongs.length > 0 ? (
           filteredSongs.map((song) => (
             <SongCard
@@ -168,6 +189,7 @@ export default function PlaylistDetailPage({ params }: PageProps) {
               title={song.title}
               genre={song.genre}
               date={song.created_date.slice(0, 10)}
+              audioSrc={song.audio_file_path}
               isActive={currentTrack?.song_id === song.song_id}
               isPlaying={currentTrack?.song_id === song.song_id && isPlaying}
               onPlay={() => {

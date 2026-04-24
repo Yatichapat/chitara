@@ -2,3 +2,4 @@ django
 Faker
 requests
 cloudflare
+google-auth

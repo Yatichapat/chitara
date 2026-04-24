@@ -1,16 +1,21 @@
 from django.conf import settings
 
 
-def get_song_generator():
-    strategy = settings.GENERATOR_STRATEGY.lower().strip()
+class SongGeneratorContext:
+    def __init__(self, strategy_name=None):
+        configured = strategy_name if strategy_name is not None else settings.GENERATOR_STRATEGY
+        self.strategy_name = str(configured).lower().strip()
 
-    if strategy == "mock":
-        from .mock_generator import MockSongGeneratorStrategy
+    def get_generator(self):
+        strategy = self.strategy_name
 
-        return MockSongGeneratorStrategy()
-    if strategy == "suno":
-        from .suno_generator import SunoSongGeneratorStrategy
+        if strategy == "mock":
+            from .mock_generator import MockSongGeneratorStrategy
 
-        return SunoSongGeneratorStrategy()
+            return MockSongGeneratorStrategy()
+        if strategy == "suno":
+            from .suno_generator import SunoSongGeneratorStrategy
 
-    raise ValueError("Invalid GENERATOR_STRATEGY. Expected 'mock' or 'suno'.")
+            return SunoSongGeneratorStrategy()
+
+        raise ValueError("Invalid GENERATOR_STRATEGY. Expected 'mock' or 'suno'.")

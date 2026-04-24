@@ -47,3 +47,10 @@ export interface GenerateRequest {
 export interface ApiError {
   error?: string;
 }
+
+export interface AuthUser {
+  user_id: number;
+  name: string;
+  email: string;
+  generation_quota: number;
+}

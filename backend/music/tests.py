@@ -2,8 +2,9 @@ from django.test import TestCase
 from django.test.utils import override_settings
 from django.urls import reverse
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
-from music.generation.factory import get_song_generator
+from music.generation.factory import SongGeneratorContext
 from music.generation.mock_generator import MockSongGeneratorStrategy
 from music.models import Album, EndUser, GenerationStatus, Song
 
@@ -86,13 +87,16 @@ class SongCUDViewTests(TestCase):
 
 class SongGeneratorStrategyTests(TestCase):
     @override_settings(GENERATOR_STRATEGY="mock")
-    def test_factory_returns_mock_strategy(self):
-        self.assertIsInstance(get_song_generator(), MockSongGeneratorStrategy)
+    def test_context_returns_mock_strategy(self):
+        self.assertIsInstance(
+            SongGeneratorContext().get_generator(),
+            MockSongGeneratorStrategy,
+        )
 
     @override_settings(GENERATOR_STRATEGY="suno")
-    def test_factory_returns_suno_strategy(self):
+    def test_context_returns_suno_strategy(self):
         self.assertEqual(
-            get_song_generator().__class__.__name__,
+            SongGeneratorContext().get_generator().__class__.__name__,
             "SunoSongGeneratorStrategy",
         )
 
@@ -107,7 +111,10 @@ class SongGeneratorStrategyTests(TestCase):
 
         self.assertEqual(result["task_id"], "mock-task-12345")
         self.assertEqual(result["status"], "completed")
-        self.assertEqual(result["audio_url"], "https://example.com/mock_song.mp3")
+        self.assertEqual(
+            result["audio_url"],
+            "https://samplelib.com/lib/preview/mp3/sample-3s.mp3",
+        )
         self.assertEqual(result["title"], "Study Session")
 
     @override_settings(SUNO_API_KEY="test-token")
@@ -232,7 +239,10 @@ class SongGeneratorStrategyTests(TestCase):
         self.assertEqual(data["occasion"], "general")
         self.assertEqual(data["generation_task_id"], "mock-task-12345")
         self.assertEqual(data["generation_status"], GenerationStatus.COMPLETED)
-        self.assertEqual(data["audio_file_path"], "https://example.com/mock_song.mp3")
+        self.assertEqual(
+            data["audio_file_path"],
+            "https://samplelib.com/lib/preview/mp3/sample-3s.mp3",
+        )
         self.assertTrue(Song.objects.filter(song_id=data["song_id"]).exists())
 
     @override_settings(GENERATOR_STRATEGY="mock")
@@ -287,7 +297,7 @@ class SongGeneratorStrategyTests(TestCase):
         self.assertEqual(data["generation_status"], GenerationStatus.COMPLETED)
         self.assertEqual(
             data["audio_file_path"],
-            "https://example.com/mock_song.mp3",
+            "https://samplelib.com/lib/preview/mp3/sample-3s.mp3",
         )
 
     def test_generation_status_extracts_audio_from_nested_data_list(self):
@@ -323,7 +333,10 @@ class SongGeneratorStrategyTests(TestCase):
                     },
                 }
 
-        with patch("music.views.get_song_generator", return_value=_StubGenerator()):
+        with patch(
+            "music.views.SongGeneratorContext.get_generator",
+            return_value=_StubGenerator(),
+        ):
             response = self.client.get(
                 reverse("generation_status", kwargs={"task_id": "suno-task-abc"})
             )
@@ -340,3 +353,111 @@ class SongGeneratorStrategyTests(TestCase):
             song.audio_file_path,
             "https://cdn.suno.ai/audio/final-track.mp3",
         )
+
+
+class GoogleAuthTests(TestCase):
+    def test_google_auth_requires_credential(self):
+        response = self.client.post(
+            reverse("google_auth"),
+            data={},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "credential is required")
+
+    def test_google_auth_creates_or_updates_user(self):
+        token_info = {
+            "email": "google-user@example.com",
+            "name": "Google User",
+        }
+
+        with patch("music.views._verify_google_credential", return_value=token_info):
+            response = self.client.post(
+                reverse("google_auth"),
+                data={"credential": "mock-google-id-token"},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["email"], token_info["email"])
+        self.assertEqual(payload["name"], token_info["name"])
+        self.assertTrue(EndUser.objects.filter(email=token_info["email"]).exists())
+
+    @override_settings(GOOGLE_CLIENT_ID="")
+    def test_google_auth_returns_error_when_google_client_id_missing(self):
+        with patch("music.views.id_token") as id_token_mock, patch(
+            "music.views.google_requests"
+        ) as google_requests_mock:
+            id_token_mock.verify_oauth2_token.return_value = {}
+            google_requests_mock.Request.return_value = object()
+
+            response = self.client.post(
+                reverse("google_auth"),
+                data={"credential": "mock-google-id-token"},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            response.json()["error"],
+            "GOOGLE_CLIENT_ID is not configured.",
+        )
+
+    @override_settings(
+        GOOGLE_CLIENT_ID="test-client-id",
+        GOOGLE_CLIENT_SECRET="test-client-secret",
+        GOOGLE_REDIRECT_URI="http://localhost:8000/accounts/google/login/callback/",
+    )
+    def test_google_login_redirect_builds_google_authorize_url(self):
+        response = self.client.get(
+            reverse("google_login_redirect"),
+            data={"next": "/playlist/library"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        parsed = urlparse(response["Location"])
+        query = parse_qs(parsed.query)
+        self.assertEqual(parsed.netloc, "accounts.google.com")
+        self.assertEqual(parsed.path, "/o/oauth2/v2/auth")
+        self.assertEqual(query["client_id"][0], "test-client-id")
+        self.assertEqual(
+            query["redirect_uri"][0],
+            "http://localhost:8000/accounts/google/login/callback/",
+        )
+        self.assertEqual(query["state"][0], "/playlist/library")
+
+    @override_settings(
+        GOOGLE_CLIENT_ID="test-client-id",
+        GOOGLE_CLIENT_SECRET="test-client-secret",
+        GOOGLE_REDIRECT_URI="http://localhost:8000/accounts/google/login/callback/",
+        FRONTEND_URL="http://127.0.0.1:3000",
+    )
+    def test_google_login_callback_creates_user_and_redirects_frontend(self):
+        token_response = MagicMock()
+        token_response.raise_for_status.return_value = None
+        token_response.json.return_value = {"id_token": "mock-id-token"}
+
+        token_info = {
+            "email": "redirect-user@example.com",
+            "name": "Redirect User",
+        }
+
+        with patch("music.views.requests.post", return_value=token_response), patch(
+            "music.views.id_token.verify_oauth2_token",
+            return_value=token_info,
+        ), patch("music.views.google_requests.Request", return_value=object()):
+            response = self.client.get(
+                reverse("google_login_callback"),
+                data={"code": "auth-code-123", "state": "/playlist"},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        parsed = urlparse(response["Location"])
+        query = parse_qs(parsed.query)
+        self.assertEqual(f"{parsed.scheme}://{parsed.netloc}{parsed.path}", "http://127.0.0.1:3000/playlist")
+        self.assertEqual(query["google_auth"][0], "success")
+        self.assertEqual(query["email"][0], token_info["email"])
+        self.assertEqual(query["name"][0], token_info["name"])
+        self.assertTrue(EndUser.objects.filter(email=token_info["email"]).exists())

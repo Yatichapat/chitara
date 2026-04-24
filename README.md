@@ -21,7 +21,6 @@ source .venv/bin/activate
 3. Install dependencies.
 
 ```bash
-pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
@@ -82,13 +81,96 @@ To use Suno, set:
 ```env
 GENERATOR_STRATEGY=suno
 SUNO_API_KEY=your_suno_api_key_here
+SUNO_CALLBACK_URL=
 ```
 
-You can also set `SUNO_CALLBACK_URL` if your Suno setup uses a callback endpoint.
+Set `SUNO_CALLBACK_URL` only if your Suno provider setup requires a callback.
+
+### Suno Callback URL (If Needed)
+
+If Suno requires a callback endpoint, configure a public HTTPS URL in `backend/.env`:
+
+```env
+SUNO_CALLBACK_URL=https://your-public-domain.com/suno/webhook
+```
+
+Example using Cloudflare Tunnel (local development):
+
+1. Install `cloudflared` (macOS):
+
+```bash
+brew install cloudflared
+```
+
+2. Start your Django backend on port `8000`, then run:
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:8000
+```
+
+3. Copy the generated public URL, for example:
+
+```text
+https://abc123-example.trycloudflare.com
+```
+
+4. Set your callback URL in `backend/.env` (use your webhook path):
+
+```env
+SUNO_CALLBACK_URL=https://abc123-example.trycloudflare.com/suno/webhook
+```
+
+Alternative with ngrok:
+
+```bash
+ngrok http 8000
+```
+
+Then set:
+
+```env
+SUNO_CALLBACK_URL=https://your-ngrok-subdomain.ngrok-free.app/suno/webhook
+```
+
+Notes:
+
+- `SUNO_CALLBACK_URL` must be a public `https://` URL.
+- The callback URL should point to a real webhook endpoint in your backend.
+- This project currently uses polling for generation status by default, so callback is optional unless your Suno setup requires it.
 
 ### Where to Put the Suno API Key
 
 Put the key in `backend/.env`. That file is already ignored by git, so the secret stays local and must not be committed.
+
+## Google OAuth Login Setup
+
+This project supports Google OAuth login from the sidebar.
+
+1. Create a Google OAuth Client ID in Google Cloud Console.
+2. Add authorized JavaScript origins for local development, for example:
+	- `http://127.0.0.1:3000`
+	- `http://localhost:3000`
+3. Set the same client ID in backend and frontend env files:
+
+`backend/.env`
+
+```env
+GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
+```
+
+`frontend/.env.local`
+
+```env
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
+BACKEND_BASE_URL=http://127.0.0.1:8000
+```
+
+4. Restart backend and frontend dev servers after changing env values.
+
+Notes:
+
+- The frontend obtains a Google ID credential and sends it to backend `/api/auth/google/`.
+- Backend verifies the credential and creates/updates the user in `EndUser`.
 
 ## Quick Check
 

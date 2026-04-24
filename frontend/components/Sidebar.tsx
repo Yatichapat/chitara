@@ -1,15 +1,76 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Coffee, ListMusic, LogIn, LogOut } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  clearAuthUser,
+  consumeGoogleAuthCallback,
+  getStoredAuthUser,
+  storeAuthUser,
+} from "@/lib/auth";
+import type { AuthUser } from "@/lib/types";
 
 export default function Sidebar() {
   const pathname = usePathname();
-  // Mock State for User Story: Login via Google, Remaining Quota
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [quota, setQuota] = useState(15); 
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [authError, setAuthError] = useState("");
+
+  const isLoggedIn = Boolean(user);
+  const quota = user?.generation_quota ?? 0;
+  const quotaPercent = useMemo(() => Math.min(100, Math.max(0, (quota / 20) * 100)), [quota]);
+
+  useEffect(() => {
+    const storedUser = getStoredAuthUser();
+    if (storedUser) {
+      setUser(storedUser);
+    }
+  }, []);
+
+  useEffect(() => {
+    const callbackUser = consumeGoogleAuthCallback(searchParams);
+    if (callbackUser) {
+      setUser(callbackUser);
+      storeAuthUser(callbackUser);
+      setAuthError("");
+      router.replace(pathname);
+      return;
+    }
+
+    if (searchParams.get("google_auth") === "error") {
+      const errorMessage = searchParams.get("error") || "Google sign-in failed.";
+      setAuthError(errorMessage);
+      router.replace(pathname);
+    }
+  }, [pathname, router, searchParams]);
+
+  function handleGoogleLogin() {
+    if (isRedirecting) {
+      return;
+    }
+
+    setIsRedirecting(true);
+    setAuthError("");
+
+    if (typeof window === "undefined") {
+      setIsRedirecting(false);
+      setAuthError("Google sign-in is only available in browser.");
+      return;
+    }
+
+    const nextPath = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(`/api/auth/google/redirect?next=${encodeURIComponent(nextPath)}`);
+  }
+
+  function handleSignOut() {
+    setUser(null);
+    setAuthError("");
+    clearAuthUser();
+  }
 
   const navItems = [
     { name: "Generate", href: "/", icon: Coffee },
@@ -50,8 +111,18 @@ export default function Sidebar() {
 
       {/* User Actions & Quota */}
       <div className="p-4 border-t border-cafe-200">
+        {authError && (
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {authError}
+          </div>
+        )}
+
         {isLoggedIn ? (
           <div className="bg-cafe-50 rounded-xl p-4 shadow-sm border border-cafe-200">
+            <div className="mb-3">
+              <p className="text-sm font-semibold text-cafe-800 truncate">{user?.name}</p>
+              <p className="text-xs text-cafe-500 truncate">{user?.email}</p>
+            </div>
             <div className="flex justify-between items-center mb-2">
               <span className="text-sm font-semibold text-cafe-800">Generations Left</span>
               <span className="text-cafe-600 font-bold text-lg">{quota}</span>
@@ -60,12 +131,12 @@ export default function Sidebar() {
             <div className="h-2 w-full bg-cafe-200 rounded-full overflow-hidden mb-4">
               <div 
                 className="h-full bg-cafe-600 rounded-full" 
-                style={{ width: `${(quota / 20) * 100}%` }}
+                style={{ width: `${quotaPercent}%` }}
               ></div>
             </div>
             
             <button 
-              onClick={() => setIsLoggedIn(false)}
+              onClick={handleSignOut}
               className="flex items-center justify-center gap-2 w-full py-2 px-4 rounded-lg text-sm font-medium text-cafe-800 hover:bg-cafe-200 transition-colors"
             >
               <LogOut size={16} />
@@ -74,11 +145,12 @@ export default function Sidebar() {
           </div>
         ) : (
           <button 
-            onClick={() => setIsLoggedIn(true)}
-            className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-cafe-800 text-cafe-50 rounded-xl hover:bg-cafe-900 transition-colors shadow-sm font-medium"
+            onClick={handleGoogleLogin}
+            disabled={isRedirecting}
+            className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-cafe-800 text-cafe-50 rounded-xl hover:bg-cafe-900 transition-colors shadow-sm font-medium disabled:opacity-70 disabled:cursor-not-allowed"
           >
             <LogIn size={18} />
-            Continue with Google
+            {isRedirecting ? "Redirecting..." : "Continue with Google"}
           </button>
         )}
       </div>
