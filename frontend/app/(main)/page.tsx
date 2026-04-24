@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Sparkles, Loader2, CheckCircle2 } from "lucide-react";
 import Modal from "@/components/Modal";
-import { getStoredAuthUser } from "@/lib/auth";
+import { getStoredAuthUser, storeAuthUser } from "@/lib/auth";
 import { ApiError, GenerateRequest, Song } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 3000;
@@ -69,6 +69,12 @@ export default function Home() {
       return;
     }
 
+    if (currentUser.generation_quota <= 0) {
+      setIsGenerating(false);
+      setError("You have no generation credits remaining.");
+      return;
+    }
+
     try {
       const generateResponse = await fetch("/api/generate", {
         method: "POST",
@@ -85,6 +91,13 @@ export default function Home() {
       const generatePayload = (await generateResponse.json()) as Song & ApiError;
       if (!generateResponse.ok) {
         throw new Error(generatePayload.error || "Failed to start song generation.");
+      }
+
+      if (typeof generatePayload.creator_generation_quota === "number") {
+        storeAuthUser({
+          ...currentUser,
+          generation_quota: generatePayload.creator_generation_quota,
+        });
       }
 
       let latestSong = generatePayload;
@@ -278,7 +291,7 @@ export default function Home() {
       >
         <div className="space-y-4">
           <p className="text-cafe-700 text-sm">
-            Are you sure you want to generate <strong>"{formData.title || 'Untitled'}"</strong>? 
+            Are you sure you want to generate <strong>&quot;{formData.title || "Untitled"}&quot;</strong>? 
             This will consume <strong>1 generation credit</strong> from your quota.
           </p>
           

@@ -17,6 +17,7 @@ from .songs import (
     generate_song,
     generation_status,
     get_songs,
+    shared_song,
     update_song,
 )
 from ..generation.factory import SongGeneratorContext
@@ -39,6 +40,7 @@ __all__ = [
     "home",
     "id_token",
     "requests",
+    "shared_song",
     "SongGeneratorContext",
     "update_song",
     "user",

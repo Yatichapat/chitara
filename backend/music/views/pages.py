@@ -1,5 +1,4 @@
 from django.http import HttpResponse
-from django.shortcuts import render
 
 
 def user(request):
@@ -7,7 +6,7 @@ def user(request):
 
 
 def home(request):
-    return render(request, "music/index.html")
+    return HttpResponse("Chitara")
 
 
 def album(request):

@@ -1,23 +1,55 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, BookOpen, Music } from "lucide-react";
+import { Plus, BookOpen, Music, Globe, Users, Lock, Check } from "lucide-react";
 import Link from "next/link";
 import Modal from "@/components/Modal";
 import { getStoredAuthUser } from "@/lib/auth";
-import { Album, AlbumsResponse, ApiError, SongsResponse } from "@/lib/types";
+import { Album, AlbumsResponse, ApiError, PrivacyLevel, SongsResponse } from "@/lib/types";
+
+const PRIVACY_OPTIONS: Array<{
+  value: PrivacyLevel;
+  label: string;
+  description: string;
+  icon: typeof Globe;
+}> = [
+  {
+    value: "public",
+    label: "Public",
+    description: "Anyone with the link can listen.",
+    icon: Globe,
+  },
+  {
+    value: "invite_only",
+    label: "Invitation Only",
+    description: "Only invited listeners can access it.",
+    icon: Users,
+  },
+  {
+    value: "private",
+    label: "Private",
+    description: "Only you can access it.",
+    icon: Lock,
+  },
+];
 
 function PlaylistCard({
   href,
   name,
   meta,
+  privacyLevel,
   isLibrary = false,
 }: {
   href: string;
   name: string;
   meta: string;
+  privacyLevel?: PrivacyLevel;
   isLibrary?: boolean;
 }) {
+  const PrivacyIcon = privacyLevel
+    ? PRIVACY_OPTIONS.find((option) => option.value === privacyLevel)?.icon
+    : undefined;
+
   return (
     <Link
       href={href}
@@ -37,8 +69,15 @@ function PlaylistCard({
       </div>
 
       <div>
-        <h3 className="font-bold text-cafe-900 group-hover:text-cafe-700 transition-colors truncate">
-          {name}
+        <h3 className="flex items-center gap-2 font-bold text-cafe-900 group-hover:text-cafe-700 transition-colors min-w-0">
+          <span className="truncate">{name}</span>
+          {PrivacyIcon && (
+            <PrivacyIcon
+              size={15}
+              className="text-cafe-400 shrink-0"
+              aria-label={`${privacyLevel} album`}
+            />
+          )}
         </h3>
         <p className="text-cafe-500 text-sm mt-1">{meta}</p>
       </div>
@@ -49,6 +88,7 @@ function PlaylistCard({
 export default function PlaylistsPage() {
   const [isAlbumModalOpen, setIsAlbumModalOpen] = useState(false);
   const [albumName, setAlbumName] = useState("");
+  const [albumPrivacy, setAlbumPrivacy] = useState<PrivacyLevel>("private");
   const [albums, setAlbums] = useState<Album[]>([]);
   const [libraryCount, setLibraryCount] = useState<number | null>(null);
   const [error, setError] = useState("");
@@ -119,6 +159,7 @@ export default function PlaylistsPage() {
         },
         body: JSON.stringify({
           name,
+          privacy_level: albumPrivacy,
           creator_id: currentUser.user_id,
         }),
       });
@@ -131,6 +172,7 @@ export default function PlaylistsPage() {
       setAlbums((prev) => [payload, ...prev]);
       setIsAlbumModalOpen(false);
       setAlbumName("");
+      setAlbumPrivacy("private");
     } catch (requestError) {
       const message =
         requestError instanceof Error
@@ -185,6 +227,7 @@ export default function PlaylistsPage() {
             href={`/playlist/${album.album_id}`}
             name={album.name}
             meta={`${album.song_count} song${album.song_count !== 1 ? "s" : ""} · ${formatDate(album.created_date)}`}
+            privacyLevel={album.privacy_level}
           />
         ))}
       </div>
@@ -192,7 +235,11 @@ export default function PlaylistsPage() {
       {/* Create Album Modal */}
       <Modal
         isOpen={isAlbumModalOpen}
-        onClose={() => setIsAlbumModalOpen(false)}
+        onClose={() => {
+          setIsAlbumModalOpen(false);
+          setAlbumName("");
+          setAlbumPrivacy("private");
+        }}
         title="New Album"
       >
         <form onSubmit={handleCreateAlbum} className="space-y-4">
@@ -207,8 +254,37 @@ export default function PlaylistsPage() {
               className="w-full px-4 py-3 bg-cafe-50 border border-cafe-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-cafe-400 text-cafe-900 placeholder:text-cafe-400"
             />
           </div>
+          <div>
+            <label className="block text-sm font-semibold text-cafe-900 mb-2">Share Option</label>
+            <div className="space-y-2">
+              {PRIVACY_OPTIONS.map(({ value, label, description, icon: Icon }) => {
+                const selected = albumPrivacy === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setAlbumPrivacy(value)}
+                    className={`w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
+                      selected
+                        ? "border-cafe-500 bg-cafe-50 text-cafe-900"
+                        : "border-cafe-200 bg-white text-cafe-700 hover:bg-cafe-50"
+                    }`}
+                  >
+                    <span className="flex items-center gap-3 min-w-0">
+                      <Icon size={18} className="text-cafe-500 shrink-0" />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold">{label}</span>
+                        <span className="block text-xs text-cafe-500">{description}</span>
+                      </span>
+                    </span>
+                    {selected && <Check size={16} className="text-cafe-700 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <p className="text-xs text-cafe-500">
-            You can add songs to this album later from the song options menu.
+            Songs added to this album will use this share option. You can still change a song individually from its options menu.
           </p>
 
           <div className="pt-2 flex justify-end gap-3">

@@ -1,6 +1,6 @@
 from django.db import models
 
-from .enums import GenerationStatus
+from .enums import GenerationStatus, PrivacyLevel
 from .users import EndUser
 
 
@@ -13,6 +13,11 @@ class Album(ShareableContent):
     album_id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=200)
     created_date = models.DateTimeField(auto_now_add=True)
+    privacy_level = models.CharField(
+        max_length=50,
+        choices=PrivacyLevel.choices,
+        default=PrivacyLevel.PRIVATE,
+    )
 
     creator = models.ForeignKey(
         EndUser,
@@ -36,6 +41,11 @@ class Song(ShareableContent):
         max_length=50,
         default=GenerationStatus.PENDING,
         choices=GenerationStatus.choices,
+    )
+    privacy_level = models.CharField(
+        max_length=50,
+        choices=PrivacyLevel.choices,
+        default=PrivacyLevel.PRIVATE,
     )
     genre = models.CharField(max_length=100)
     mood = models.CharField(max_length=100)

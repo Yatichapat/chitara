@@ -1,12 +1,13 @@
 from django.test import TestCase
 from django.test.utils import override_settings
 from django.urls import reverse
+from django.utils import timezone
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
 from music.generation.factory import SongGeneratorContext
 from music.generation.mock_generator import MockSongGeneratorStrategy
-from music.models import Album, EndUser, GenerationStatus, Song
+from music.models import Album, EndUser, GenerationStatus, Invitation, PrivacyLevel, Song
 
 
 class SongCUDViewTests(TestCase):
@@ -16,7 +17,11 @@ class SongCUDViewTests(TestCase):
             email="test@example.com",
             generation_quota=10,
         )
-        self.album = Album.objects.create(name="My Album", creator=self.user)
+        self.album = Album.objects.create(
+            name="My Album",
+            creator=self.user,
+            privacy_level=PrivacyLevel.PUBLIC,
+        )
         self.song = Song.objects.create(
             title="Initial Song",
             description="Initial description",
@@ -50,6 +55,7 @@ class SongCUDViewTests(TestCase):
         self.assertEqual(data["title"], payload["title"])
         self.assertEqual(data["creator_id"], self.user.user_id)
         self.assertIn(self.album.album_id, data["albums"])
+        self.assertEqual(data["privacy_level"], PrivacyLevel.PUBLIC)
         self.assertTrue(Song.objects.filter(title="New Song").exists())
 
     def test_update_song_success(self):
@@ -70,6 +76,70 @@ class SongCUDViewTests(TestCase):
         self.assertEqual(self.song.title, "Updated Song")
         self.assertEqual(self.song.mood, "Energetic")
         self.assertIn(self.album, self.song.albums.all())
+        self.assertEqual(self.song.privacy_level, PrivacyLevel.PUBLIC)
+
+    def test_update_song_privacy_success(self):
+        response = self.client.patch(
+            reverse("update_song", kwargs={"song_id": self.song.song_id}),
+            data={"privacy_level": "invite"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.song.refresh_from_db()
+        self.assertEqual(self.song.privacy_level, PrivacyLevel.INVITE_ONLY)
+        self.assertEqual(response.json()["privacy_level"], PrivacyLevel.INVITE_ONLY)
+
+    def test_update_song_invited_emails_success(self):
+        response = self.client.patch(
+            reverse("update_song", kwargs={"song_id": self.song.song_id}),
+            data={
+                "privacy_level": PrivacyLevel.INVITE_ONLY,
+                "invited_emails": ["Friend@Example.com", "friend@example.com", "team@example.com"],
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.song.refresh_from_db()
+        self.assertEqual(self.song.privacy_level, PrivacyLevel.INVITE_ONLY)
+        self.assertEqual(
+            response.json()["invited_emails"],
+            ["friend@example.com", "team@example.com"],
+        )
+
+    def test_shared_song_invite_only_allows_invited_email(self):
+        self.song.privacy_level = PrivacyLevel.INVITE_ONLY
+        self.song.save(update_fields=["privacy_level"])
+        link = self.song.shared_links.create(
+            privacy_level=PrivacyLevel.INVITE_ONLY,
+            expiration_date=timezone.now() + timezone.timedelta(days=1),
+        )
+        Invitation.objects.create(link=link, email="friend@example.com")
+
+        response = self.client.get(
+            reverse("shared_song", kwargs={"song_id": self.song.song_id}),
+            data={"email": "friend@example.com"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["song_id"], self.song.song_id)
+
+    def test_shared_song_invite_only_blocks_uninvited_email(self):
+        self.song.privacy_level = PrivacyLevel.INVITE_ONLY
+        self.song.save(update_fields=["privacy_level"])
+        link = self.song.shared_links.create(
+            privacy_level=PrivacyLevel.INVITE_ONLY,
+            expiration_date=timezone.now() + timezone.timedelta(days=1),
+        )
+        Invitation.objects.create(link=link, email="friend@example.com")
+
+        response = self.client.get(
+            reverse("shared_song", kwargs={"song_id": self.song.song_id}),
+            data={"email": "stranger@example.com"},
+        )
+
+        self.assertEqual(response.status_code, 403)
 
     def test_delete_song_success(self):
         response = self.client.delete(
@@ -213,7 +283,7 @@ class SongGeneratorStrategyTests(TestCase):
 
     @override_settings(GENERATOR_STRATEGY="mock")
     def test_generate_song_endpoint_creates_song_record(self):
-        EndUser.objects.create(
+        user = EndUser.objects.create(
             name="Generator User",
             email="generator@example.com",
             generation_quota=10,
@@ -239,11 +309,39 @@ class SongGeneratorStrategyTests(TestCase):
         self.assertEqual(data["occasion"], "general")
         self.assertEqual(data["generation_task_id"], "mock-task-12345")
         self.assertEqual(data["generation_status"], GenerationStatus.COMPLETED)
+        self.assertEqual(data["creator_generation_quota"], 9)
         self.assertEqual(
             data["audio_file_path"],
             "https://samplelib.com/lib/preview/mp3/sample-3s.mp3",
         )
         self.assertTrue(Song.objects.filter(song_id=data["song_id"]).exists())
+        user.refresh_from_db()
+        self.assertEqual(user.generation_quota, 9)
+
+    @override_settings(GENERATOR_STRATEGY="mock")
+    def test_generate_song_blocks_user_without_quota(self):
+        user = EndUser.objects.create(
+            name="No Quota User",
+            email="no-quota@example.com",
+            generation_quota=0,
+        )
+        payload = {
+            "prompt": "A calm piano melody",
+            "title": "Study Session",
+            "genre": "Ambient",
+            "mood": "Calm",
+            "creator_id": user.user_id,
+        }
+
+        response = self.client.post(
+            reverse("generate_song"),
+            data=payload,
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"], "No generation credits remaining")
+        self.assertFalse(Song.objects.filter(title="Study Session").exists())
 
     @override_settings(GENERATOR_STRATEGY="mock")
     def test_generate_song_requires_some_user_if_creator_missing(self):
@@ -372,7 +470,7 @@ class GoogleAuthTests(TestCase):
             "name": "Google User",
         }
 
-        with patch("music.views._verify_google_credential", return_value=token_info):
+        with patch("music.views.auth._verify_google_credential", return_value=token_info):
             response = self.client.post(
                 reverse("google_auth"),
                 data={"credential": "mock-google-id-token"},
@@ -387,8 +485,8 @@ class GoogleAuthTests(TestCase):
 
     @override_settings(GOOGLE_CLIENT_ID="")
     def test_google_auth_returns_error_when_google_client_id_missing(self):
-        with patch("music.views.id_token") as id_token_mock, patch(
-            "music.views.google_requests"
+        with patch("music.views.auth.id_token") as id_token_mock, patch(
+            "music.views.auth.google_requests"
         ) as google_requests_mock:
             id_token_mock.verify_oauth2_token.return_value = {}
             google_requests_mock.Request.return_value = object()
@@ -444,10 +542,10 @@ class GoogleAuthTests(TestCase):
             "name": "Redirect User",
         }
 
-        with patch("music.views.requests.post", return_value=token_response), patch(
-            "music.views.id_token.verify_oauth2_token",
+        with patch("music.views.auth.requests.post", return_value=token_response), patch(
+            "music.views.auth.id_token.verify_oauth2_token",
             return_value=token_info,
-        ), patch("music.views.google_requests.Request", return_value=object()):
+        ), patch("music.views.auth.google_requests.Request", return_value=object()):
             response = self.client.get(
                 reverse("google_login_callback"),
                 data={"code": "auth-code-123", "state": "/playlist"},

@@ -13,6 +13,9 @@ export interface Song {
   audio_file_path: string;
   generation_task_id: string;
   generation_status: GenerationStatus;
+  privacy_level: PrivacyLevel;
+  invited_emails: string[];
+  creator_generation_quota?: number;
   genre: string;
   mood: string;
   occasion: string;
@@ -24,9 +27,12 @@ export interface Album {
   album_id: number;
   name: string;
   created_date: string;
+  privacy_level: PrivacyLevel;
   creator_id: number;
   song_count: number;
 }
+
+export type PrivacyLevel = "public" | "invite_only" | "private";
 
 export interface SongsResponse {
   songs: Song[];

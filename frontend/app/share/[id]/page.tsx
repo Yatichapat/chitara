@@ -1,99 +1,346 @@
 "use client";
 
-import { Play, Pause, AlertCircle, Coffee, RotateCcw } from "lucide-react";
-import { useState, useEffect, use } from "react";
+import {
+  AlertCircle,
+  Coffee,
+  Download,
+  Globe,
+  Loader2,
+  LogIn,
+  Pause,
+  Play,
+  RotateCcw,
+  Users,
+} from "lucide-react";
+import { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  consumeGoogleAuthCallback,
+  getStoredAuthUser,
+  storeAuthUser,
+} from "@/lib/auth";
+import { ApiError, PrivacyLevel, Song } from "@/lib/types";
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
+function formatTime(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0:00";
+  }
+
+  const minutes = Math.floor(value / 60);
+  const seconds = Math.floor(value % 60);
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function formatDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value.slice(0, 10);
+  }
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function getAudioUrl(song: Song) {
+  return `/api/audio?src=${encodeURIComponent(song.audio_file_path)}`;
+}
+
+function getDownloadUrl(song: Song) {
+  const safeTitle =
+    song.title
+      .replace(/[^a-zA-Z0-9-_\s]/g, "")
+      .trim()
+      .replace(/\s+/g, "_") || "song";
+  return `/api/audio?src=${encodeURIComponent(song.audio_file_path)}&download=1&filename=${encodeURIComponent(`${safeTitle}.mp3`)}`;
+}
+
+function privacyLabel(privacyLevel: PrivacyLevel) {
+  if (privacyLevel === "invite_only") {
+    return "Invitation Only";
+  }
+  return privacyLevel.charAt(0).toUpperCase() + privacyLevel.slice(1);
+}
+
 export default function SharedSongPage({ params }: PageProps) {
-  const resolvedParams = use(params);
-  const [hasError, setHasError] = useState(false);
+  const { id } = use(params);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const songId = Number(id);
+  const [song, setSong] = useState<Song | null>(null);
+  const [error, setError] = useState("");
+  const [requiresSignIn, setRequiresSignIn] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [authVersion, setAuthVersion] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Mock checking if link is valid
   useEffect(() => {
-    if (resolvedParams.id === "broken" || resolvedParams.id === "invalid") {
-      setHasError(true);
+    const callbackUser = consumeGoogleAuthCallback(searchParams);
+    if (callbackUser) {
+      storeAuthUser(callbackUser);
+      setAuthVersion((current) => current + 1);
+      setIsRedirecting(false);
+      router.replace(`/share/${id}`);
+      return;
     }
-  }, [resolvedParams.id]);
 
-  if (hasError) {
+    if (searchParams.get("google_auth") === "error") {
+      setError(searchParams.get("error") || "Google sign-in failed.");
+      setRequiresSignIn(true);
+      setIsLoading(false);
+      setIsRedirecting(false);
+      router.replace(`/share/${id}`);
+    }
+  }, [id, router, searchParams]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSharedSong() {
+      setIsLoading(true);
+      setError("");
+      setRequiresSignIn(false);
+
+      if (!Number.isInteger(songId)) {
+        setError("This shared song link is invalid.");
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const viewerEmail = getStoredAuthUser()?.email;
+        const query = viewerEmail ? `?email=${encodeURIComponent(viewerEmail)}` : "";
+        const response = await fetch(`/api/share/${songId}${query}`, { cache: "no-store" });
+        const payload = (await response.json()) as Song & ApiError;
+        if (!response.ok) {
+          if (!viewerEmail && response.status === 403) {
+            setRequiresSignIn(true);
+          }
+          throw new Error(payload.error || "Failed to load shared song.");
+        }
+
+        if (!payload.audio_file_path) {
+          throw new Error("This song is not ready to play yet.");
+        }
+
+        if (!cancelled) {
+          setSong(payload);
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          const message =
+            requestError instanceof Error
+              ? requestError.message
+              : "This shared song link is unavailable.";
+          setError(message);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadSharedSong();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authVersion, songId]);
+
+  useEffect(() => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+  }, [song?.song_id]);
+
+  function togglePlayback() {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    if (audio.paused) {
+      void audio.play();
+      return;
+    }
+
+    audio.pause();
+  }
+
+  function restartPlayback() {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    audio.currentTime = 0;
+    void audio.play();
+  }
+
+  function handleSeek(value: number) {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    audio.currentTime = value;
+    setCurrentTime(value);
+  }
+
+  function handleGoogleLogin() {
+    if (isRedirecting || typeof window === "undefined") {
+      return;
+    }
+
+    setIsRedirecting(true);
+    const nextPath = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(`/api/auth/google/redirect?next=${encodeURIComponent(nextPath)}`);
+  }
+
+  if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-full max-w-md mx-auto text-center px-4">
-        <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-6">
-          <AlertCircle size={32} className="text-red-500" />
-        </div>
-        <h1 className="text-2xl font-bold text-cafe-900 mb-2">Link Unavailable</h1>
-        <p className="text-cafe-600 mb-8">
-          The song you're trying to access might have been deleted, set to private, or the link is broken.
-        </p>
-        <Link href="/" className="px-6 py-3 bg-cafe-800 text-cafe-50 rounded-xl hover:bg-cafe-900 transition-colors font-medium">
-          Create Your Own AI Song
-        </Link>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-cafe-50 px-4 text-cafe-700">
+        <Loader2 size={28} className="animate-spin mb-3" />
+        <p className="text-sm font-medium">Loading shared song...</p>
       </div>
     );
   }
 
+  if (error || !song) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-cafe-50 max-w-md mx-auto text-center px-4">
+        <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-6">
+          <AlertCircle size={32} className="text-red-500" />
+        </div>
+        <h1 className="text-2xl font-bold text-cafe-900 mb-2">
+          {requiresSignIn ? "Sign In Required" : "Link Unavailable"}
+        </h1>
+        <p className="text-cafe-600 mb-8">
+          {error || "The song you're trying to access might have been deleted or set to private."}
+        </p>
+        {requiresSignIn ? (
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            disabled={isRedirecting}
+            className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-cafe-800 text-cafe-50 rounded-xl hover:bg-cafe-900 transition-colors font-medium disabled:opacity-70 disabled:cursor-not-allowed"
+          >
+            <LogIn size={18} />
+            {isRedirecting ? "Redirecting..." : "Continue with Google"}
+          </button>
+        ) : (
+          <Link href="/" className="px-6 py-3 bg-cafe-800 text-cafe-50 rounded-xl hover:bg-cafe-900 transition-colors font-medium">
+            Create Your Own AI Song
+          </Link>
+        )}
+      </div>
+    );
+  }
+
+  const PrivacyIcon = song.privacy_level === "invite_only" ? Users : Globe;
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-cafe-50 px-4">
-      
       <div className="absolute top-8 left-8">
-         <h1 className="text-xl font-display font-bold text-cafe-900 tracking-wider flex items-center gap-2">
-            <Coffee size={20} className="text-cafe-600" />
-            <span className="opacity-90">Chitara Shared</span>
-         </h1>
+        <h1 className="text-xl font-display font-bold text-cafe-900 tracking-wider flex items-center gap-2">
+          <Coffee size={20} className="text-cafe-600" />
+          <span className="opacity-90">Chitara Shared</span>
+        </h1>
       </div>
 
       <div className="w-full max-w-md bg-white border border-cafe-200 rounded-3xl p-8 shadow-xl">
         <div className="aspect-square w-full bg-cafe-100 rounded-2xl mb-6 flex items-center justify-center border-4 border-cafe-50 overflow-hidden relative shadow-sm">
-           {/* Abstract Cover */}
-           <div className="absolute inset-0 bg-cafe-200 opacity-30 mix-blend-multiply"></div>
-           <Coffee size={64} className="text-cafe-400 mix-blend-overlay" />
+          <div className="absolute inset-0 bg-cafe-800 opacity-30 mix-blend-multiply" />
+          <Coffee size={64} className="text-white mix-blend-overlay" />
         </div>
 
         <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-cafe-900 mb-1">Morning Routine Jazz</h2>
-          <p className="text-cafe-500 font-medium text-sm">Created via Chitara AI</p>
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-cafe-200 bg-cafe-50 px-3 py-1 text-xs font-semibold text-cafe-600 mb-3">
+            <PrivacyIcon size={13} />
+            {privacyLabel(song.privacy_level)}
+          </div>
+          <h2 className="text-2xl font-bold text-cafe-900 mb-2">{song.title}</h2>
+          <p className="text-cafe-500 font-medium text-sm">
+            {song.genre} • {song.mood} • {song.occasion}
+          </p>
+          <p className="text-cafe-400 text-xs mt-1">Created {formatDate(song.created_date)}</p>
         </div>
 
+        <audio
+          ref={audioRef}
+          src={getAudioUrl(song)}
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+          onEnded={() => setIsPlaying(false)}
+          onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+          onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
+          onError={() => setError("This song audio could not be loaded.")}
+        />
+
         <div className="space-y-6">
-          {/* Progress */}
           <div className="space-y-2">
-            <div className="h-2 w-full bg-cafe-100 rounded-full overflow-hidden cursor-pointer">
-              <div className="h-full bg-cafe-600 rounded-full w-1/3"></div>
-            </div>
+            <input
+              type="range"
+              min={0}
+              max={duration || 0}
+              step={0.1}
+              value={Math.min(currentTime, duration || 0)}
+              onChange={(event) => handleSeek(Number(event.target.value))}
+              className="w-full accent-cafe-700"
+              aria-label="Track progress"
+            />
             <div className="flex justify-between text-xs text-cafe-500 font-medium">
-              <span>1:04</span>
-              <span>3:15</span>
+              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(duration)}</span>
             </div>
           </div>
 
-          {/* Controls */}
           <div className="flex justify-center items-center gap-6">
-            <button className="text-cafe-400 hover:text-cafe-700 transition-colors p-2">
+            <button
+              type="button"
+              onClick={restartPlayback}
+              className="text-cafe-400 hover:text-cafe-700 transition-colors p-2"
+              title="Restart"
+            >
               <RotateCcw size={20} />
             </button>
-            <button 
-              onClick={() => setIsPlaying(!isPlaying)}
+            <button
+              type="button"
+              onClick={togglePlayback}
               className="w-16 h-16 flex items-center justify-center bg-cafe-800 text-cafe-50 rounded-full hover:bg-cafe-900 transition-transform active:scale-95 shadow-md"
             >
-              {isPlaying ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="ml-1" />}
+              {isPlaying ? (
+                <Pause size={32} fill="currentColor" />
+              ) : (
+                <Play size={32} fill="currentColor" className="ml-1" />
+              )}
             </button>
-            <button className="text-cafe-400 hover:text-cafe-700 transition-colors p-2">
-               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-            </button>
+            <a
+              href={getDownloadUrl(song)}
+              className="text-cafe-400 hover:text-cafe-700 transition-colors p-2"
+              title="Download"
+            >
+              <Download size={20} />
+            </a>
           </div>
         </div>
       </div>
 
       <p className="mt-8 text-cafe-400 text-sm font-medium">
-        Want to generate your own music? <Link href="/" className="text-cafe-700 underline underline-offset-2">Try Chitara</Link>
+        Want to generate your own music?{" "}
+        <Link href="/" className="text-cafe-700 underline underline-offset-2">Try Chitara</Link>
       </p>
-
     </div>
   );
 }

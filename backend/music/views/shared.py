@@ -3,8 +3,9 @@ import json
 
 from django.conf import settings
 from django.http import JsonResponse
+from django.utils import timezone
 
-from music.models import Album, EndUser, GenerationStatus
+from music.models import Album, EndUser, GenerationStatus, Invitation, PrivacyLevel, SharedLink
 
 
 def _json_error(message, status):
@@ -82,6 +83,9 @@ def _serialize_song(song):
         "audio_file_path": song.audio_file_path,
         "generation_task_id": song.generation_task_id,
         "generation_status": song.generation_status,
+        "privacy_level": song.privacy_level,
+        "invited_emails": _get_song_invited_emails(song),
+        "creator_generation_quota": song.creator.generation_quota,
         "genre": song.genre,
         "mood": song.mood,
         "occasion": song.occasion,
@@ -95,6 +99,7 @@ def _serialize_album(album):
         "album_id": album.album_id,
         "name": album.name,
         "created_date": album.created_date.isoformat(),
+        "privacy_level": album.privacy_level,
         "creator_id": album.creator_id,
         "song_count": album.songs.count(),
     }
@@ -132,6 +137,83 @@ def _get_albums(album_ids):
     if len(albums) != len(set(album_ids)):
         return None
     return albums
+
+
+def _normalize_email(value):
+    return str(value or "").strip().lower()
+
+
+def _normalize_invited_emails(values):
+    if values is None:
+        return []
+
+    if isinstance(values, str):
+        raw_values = values.replace("\n", ",").split(",")
+    elif isinstance(values, list):
+        raw_values = values
+    else:
+        return None
+
+    emails = []
+    seen = set()
+    for value in raw_values:
+        email = _normalize_email(value)
+        if not email or email in seen:
+            continue
+        if "@" not in email:
+            return None
+        emails.append(email)
+        seen.add(email)
+
+    return emails
+
+
+def _get_song_shared_link(song):
+    link = song.shared_links.order_by("link_id").first()
+    if link is not None:
+        return link
+
+    return SharedLink.objects.create(
+        content=song,
+        privacy_level=song.privacy_level,
+        expiration_date=timezone.now() + timezone.timedelta(days=3650),
+    )
+
+
+def _get_song_invited_emails(song):
+    link = song.shared_links.order_by("link_id").first()
+    if link is None:
+        return []
+
+    return list(
+        link.invitations.order_by("email").values_list("email", flat=True)
+    )
+
+
+def _set_song_invited_emails(song, emails):
+    link = _get_song_shared_link(song)
+    link.invitations.all().delete()
+    Invitation.objects.bulk_create(
+        [Invitation(link=link, email=email) for email in emails]
+    )
+    return link
+
+
+def _sync_song_shared_link(song):
+    link = _get_song_shared_link(song)
+    link.privacy_level = song.privacy_level
+    if link.expiration_date <= timezone.now():
+        link.expiration_date = timezone.now() + timezone.timedelta(days=3650)
+    link.save(update_fields=["privacy_level", "expiration_date"])
+    return link
+
+
+def _normalize_privacy_level(value):
+    if value == "invite":
+        return PrivacyLevel.INVITE_ONLY
+    if value in PrivacyLevel.values:
+        return value
+    return None
 
 
 def _update_song_from_generation(song, result):

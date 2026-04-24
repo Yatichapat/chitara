@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Coffee, ListMusic, LogIn, LogOut } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
+  AUTH_USER_CHANGED_EVENT,
   clearAuthUser,
   consumeGoogleAuthCallback,
   getStoredAuthUser,
@@ -25,10 +26,13 @@ export default function Sidebar() {
   const quotaPercent = useMemo(() => Math.min(100, Math.max(0, (quota / 20) * 100)), [quota]);
 
   useEffect(() => {
-    const storedUser = getStoredAuthUser();
-    if (storedUser) {
-      setUser(storedUser);
+    function syncStoredUser() {
+      setUser(getStoredAuthUser());
     }
+
+    syncStoredUser();
+    window.addEventListener(AUTH_USER_CHANGED_EVENT, syncStoredUser);
+    return () => window.removeEventListener(AUTH_USER_CHANGED_EVENT, syncStoredUser);
   }, []);
 
   useEffect(() => {

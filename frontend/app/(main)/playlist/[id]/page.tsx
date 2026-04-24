@@ -6,7 +6,7 @@ import Link from "next/link";
 import SongCard from "@/components/SongCard";
 import { usePlayback } from "@/components/PlaybackProvider";
 import { getStoredAuthUser } from "@/lib/auth";
-import { Album, AlbumsResponse, ApiError, Song, SongsResponse } from "@/lib/types";
+import { Album, AlbumsResponse, ApiError, PrivacyLevel, Song, SongsResponse } from "@/lib/types";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -48,7 +48,10 @@ export default function PlaylistDetailPage({ params }: PageProps) {
 
         if (albumsResponse.ok) {
           const albumsPayload = (await albumsResponse.json()) as AlbumsResponse;
-          setAlbums(albumsPayload.albums || []);
+          const ownedAlbums = storedUser
+            ? (albumsPayload.albums || []).filter((album) => album.creator_id === storedUser.user_id)
+            : [];
+          setAlbums(ownedAlbums);
         }
 
         const sorted = [...(songsPayload.songs || [])].sort((a, b) => b.song_id - a.song_id);
@@ -98,17 +101,62 @@ export default function PlaylistDetailPage({ params }: PageProps) {
       return;
     }
 
+    const ownedAlbumIds = new Set(albums.map((album) => album.album_id));
+    const preservedAlbumIds = currentSong.albums.filter((albumId) => !ownedAlbumIds.has(albumId));
+    const updatedAlbumIds = [...preservedAlbumIds, ...nextAlbumIds];
+
     const response = await fetch(`/api/songs/${songId}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ albums: nextAlbumIds }),
+      body: JSON.stringify({ albums: updatedAlbumIds }),
     });
 
     const payload = (await response.json()) as Song & ApiError;
     if (!response.ok) {
       throw new Error(payload.error || "Failed to move song to album.");
+    }
+
+    setSongs((current) =>
+      current.map((song) => (song.song_id === songId ? payload : song)),
+    );
+  }
+
+  async function handleUpdateSongVisibility(songId: number, privacyLevel: PrivacyLevel) {
+    const response = await fetch(`/api/songs/${songId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ privacy_level: privacyLevel }),
+    });
+
+    const payload = (await response.json()) as Song & ApiError;
+    if (!response.ok) {
+      throw new Error(payload.error || "Failed to update share option.");
+    }
+
+    setSongs((current) =>
+      current.map((song) => (song.song_id === songId ? payload : song)),
+    );
+  }
+
+  async function handleUpdateSongInvites(songId: number, invitedEmails: string[]) {
+    const response = await fetch(`/api/songs/${songId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        privacy_level: "invite_only",
+        invited_emails: invitedEmails,
+      }),
+    });
+
+    const payload = (await response.json()) as Song & ApiError;
+    if (!response.ok) {
+      throw new Error(payload.error || "Failed to update invited emails.");
     }
 
     setSongs((current) =>
@@ -190,6 +238,8 @@ export default function PlaylistDetailPage({ params }: PageProps) {
               genre={song.genre}
               date={song.created_date.slice(0, 10)}
               audioSrc={song.audio_file_path}
+              visibility={song.privacy_level}
+              invitedEmails={song.invited_emails || []}
               isActive={currentTrack?.song_id === song.song_id}
               isPlaying={currentTrack?.song_id === song.song_id && isPlaying}
               onPlay={() => {
@@ -211,6 +261,31 @@ export default function PlaylistDetailPage({ params }: PageProps) {
                       ? requestError.message
                       : "Failed to move song to album.";
                   setError(message);
+                  throw requestError;
+                }
+              }}
+              onUpdateVisibility={async (songId, privacyLevel) => {
+                try {
+                  await handleUpdateSongVisibility(songId, privacyLevel);
+                } catch (requestError) {
+                  const message =
+                    requestError instanceof Error
+                      ? requestError.message
+                      : "Failed to update share option.";
+                  setError(message);
+                  throw requestError;
+                }
+              }}
+              onUpdateInvites={async (songId, invitedEmails) => {
+                try {
+                  await handleUpdateSongInvites(songId, invitedEmails);
+                } catch (requestError) {
+                  const message =
+                    requestError instanceof Error
+                      ? requestError.message
+                      : "Failed to update invited emails.";
+                  setError(message);
+                  throw requestError;
                 }
               }}
               onDelete={async (songId) => {

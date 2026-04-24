@@ -22,22 +22,26 @@ interface SongCardProps {
   genre: string;
   date: string;
   audioSrc?: string;
-  visibility?: "public" | "private" | "invite";
+  visibility?: PrivacyLevel;
+  invitedEmails?: string[];
   songId?: number;
   isActive?: boolean;
   isPlaying?: boolean;
   onPlay?: () => void;
-  albumOptions?: Array<{ album_id: number; name: string }>;
+  albumOptions?: Array<{ album_id: number; name: string; privacy_level?: PrivacyLevel }>;
   currentAlbumIds?: number[];
   onUpdateAlbums?: (songId: number, albumIds: number[]) => Promise<void>;
+  onUpdateVisibility?: (songId: number, privacyLevel: PrivacyLevel) => Promise<void>;
+  onUpdateInvites?: (songId: number, invitedEmails: string[]) => Promise<void>;
   onDelete?: (songId: number) => Promise<void>;
 }
 
 type MenuView = "root" | "share" | "playlist";
+type PrivacyLevel = "public" | "invite_only" | "private";
 
 const VISIBILITY_OPTIONS = [
   { value: "public", label: "Public", icon: Globe },
-  { value: "invite", label: "Invitation Only", icon: Users },
+  { value: "invite_only", label: "Invitation Only", icon: Users },
   { value: "private", label: "Private", icon: Lock },
 ] as const;
 
@@ -47,6 +51,7 @@ export default function SongCard({
   date,
   audioSrc = "",
   visibility = "private",
+  invitedEmails = [],
   songId,
   isActive = false,
   isPlaying = false,
@@ -54,16 +59,29 @@ export default function SongCard({
   albumOptions = [],
   currentAlbumIds = [],
   onUpdateAlbums,
+  onUpdateVisibility,
+  onUpdateInvites,
   onDelete,
 }: SongCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuView, setMenuView] = useState<MenuView>("root");
   const [currentVisibility, setCurrentVisibility] = useState(visibility);
   const [isCopied, setIsCopied] = useState(false);
+  const [inviteEmailText, setInviteEmailText] = useState(invitedEmails.join(", "));
   const [selectedAlbumIds, setSelectedAlbumIds] = useState<Set<string>>(new Set());
   const [isMoving, setIsMoving] = useState(false);
+  const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
+  const [isSavingInvites, setIsSavingInvites] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setCurrentVisibility(visibility);
+  }, [visibility]);
+
+  useEffect(() => {
+    setInviteEmailText(invitedEmails.join(", "));
+  }, [invitedEmails]);
 
   // Close on outside click
   useEffect(() => {
@@ -83,7 +101,14 @@ export default function SongCard({
   }
 
   function openPlaylistMenu() {
-    setSelectedAlbumIds(new Set(currentAlbumIds.map(String)));
+    const visibleAlbumIds = new Set(albumOptions.map((album) => album.album_id));
+    setSelectedAlbumIds(
+      new Set(
+        currentAlbumIds
+          .filter((albumId) => visibleAlbumIds.has(albumId))
+          .map(String),
+      ),
+    );
     setMenuView("playlist");
   }
 
@@ -118,8 +143,55 @@ export default function SongCard({
         .filter((albumId) => Number.isFinite(albumId));
       await onUpdateAlbums(songId, nextAlbumIds);
       closeMenu();
+    } catch {
+      // Parent surfaces the error; keep the menu open so the user can retry.
     } finally {
       setIsMoving(false);
+    }
+  }
+
+  async function handleUpdateVisibility(nextVisibility: PrivacyLevel) {
+    if (!songId || !onUpdateVisibility || isUpdatingVisibility) {
+      setCurrentVisibility(nextVisibility);
+      return;
+    }
+
+    const previousVisibility = currentVisibility;
+    setCurrentVisibility(nextVisibility);
+    setIsUpdatingVisibility(true);
+    try {
+      await onUpdateVisibility(songId, nextVisibility);
+    } catch {
+      setCurrentVisibility(previousVisibility);
+    } finally {
+      setIsUpdatingVisibility(false);
+    }
+  }
+
+  function parseInviteEmails() {
+    const seen = new Set<string>();
+    return inviteEmailText
+      .split(/[\n,]+/)
+      .map((email) => email.trim().toLowerCase())
+      .filter((email) => {
+        if (!email || seen.has(email)) {
+          return false;
+        }
+        seen.add(email);
+        return true;
+      });
+  }
+
+  async function handleSaveInvites() {
+    if (!songId || !onUpdateInvites || isSavingInvites) return;
+
+    setIsSavingInvites(true);
+    try {
+      await onUpdateInvites(songId, parseInviteEmails());
+    } catch {
+      // Parent surfaces the error; leave edits in place so the user can retry.
+    } finally {
+      setIsSavingInvites(false);
     }
   }
 
@@ -185,8 +257,11 @@ export default function SongCard({
           </div>
         </div>
         <div className="min-w-0">
-          <h3 className="font-bold text-cafe-900 truncate">
-            {title} {isActive && <span className="text-cafe-500">{isPlaying ? "• Playing" : "• Paused"}</span>}
+          <h3 className="flex items-center gap-2 font-bold text-cafe-900 min-w-0">
+            <span className="truncate">
+              {title} {isActive && <span className="text-cafe-500">{isPlaying ? "• Playing" : "• Paused"}</span>}
+            </span>
+            <VisibilityIcon size={15} className="text-cafe-400 shrink-0" aria-label={currentVisibility} />
           </h3>
           <div className="flex items-center gap-2 mt-1 text-xs text-cafe-500 font-medium">
             <span className="capitalize px-2 py-0.5 bg-cafe-50 rounded border border-cafe-100">
@@ -292,15 +367,13 @@ export default function SongCard({
                   {VISIBILITY_OPTIONS.map(({ value, label, icon: Icon }) => (
                     <button
                       key={value}
-                      onClick={() => {
-                        setCurrentVisibility(value);
-                        // stay open so user can also copy
-                      }}
+                      onClick={() => void handleUpdateVisibility(value)}
+                      disabled={isUpdatingVisibility}
                       className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm rounded-xl hover:bg-cafe-50 transition-colors ${
                         currentVisibility === value
                           ? "text-cafe-900 font-semibold"
                           : "text-cafe-700"
-                      }`}
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
                       <span className="flex items-center gap-2">
                         <Icon size={16} className="text-cafe-500" />
@@ -313,6 +386,29 @@ export default function SongCard({
                   ))}
 
                   <div className="my-1 border-t border-cafe-100" />
+
+                  {currentVisibility === "invite_only" && (
+                    <div className="px-3 py-2">
+                      <label className="block text-xs font-semibold text-cafe-500 mb-1.5">
+                        Invited emails
+                      </label>
+                      <textarea
+                        value={inviteEmailText}
+                        onChange={(event) => setInviteEmailText(event.target.value)}
+                        placeholder="friend@example.com, team@example.com"
+                        rows={3}
+                        className="w-full resize-none rounded-xl border border-cafe-200 bg-cafe-50 px-3 py-2 text-xs text-cafe-900 placeholder:text-cafe-400 focus:outline-none focus:ring-2 focus:ring-cafe-300"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveInvites}
+                        disabled={!songId || !onUpdateInvites || isSavingInvites}
+                        className="mt-2 w-full py-2 text-xs font-semibold rounded-xl bg-cafe-800 text-cafe-50 hover:bg-cafe-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSavingInvites ? "Saving..." : "Save Invites"}
+                      </button>
+                    </div>
+                  )}
 
                   {/* Copy link */}
                   <button
@@ -353,6 +449,8 @@ export default function SongCard({
                       <div className="max-h-44 overflow-y-auto space-y-0.5 mt-0.5">
                         {albumOptions.map((album) => {
                           const checked = selectedAlbumIds.has(String(album.album_id));
+                          const AlbumPrivacyIcon =
+                            VISIBILITY_OPTIONS.find((option) => option.value === album.privacy_level)?.icon ?? Lock;
                           return (
                             <button
                               key={album.album_id}
@@ -375,7 +473,8 @@ export default function SongCard({
                                   <Check size={10} className="text-cafe-50" strokeWidth={3} />
                                 )}
                               </span>
-                              {album.name}
+                              <span className="min-w-0 flex-1 truncate text-left">{album.name}</span>
+                              <AlbumPrivacyIcon size={14} className="text-cafe-400 shrink-0" />
                             </button>
                           );
                         })}

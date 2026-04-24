@@ -1,6 +1,11 @@
 import { AuthUser } from "@/lib/types";
 
 export const USER_STORAGE_KEY = "chitara.auth.user";
+export const AUTH_USER_CHANGED_EVENT = "chitara.auth.user.changed";
+
+function notifyAuthUserChanged() {
+  window.dispatchEvent(new Event(AUTH_USER_CHANGED_EVENT));
+}
 
 export function storeAuthUser(user: AuthUser) {
   if (typeof window === "undefined") {
@@ -8,6 +13,7 @@ export function storeAuthUser(user: AuthUser) {
   }
 
   window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+  notifyAuthUserChanged();
 }
 
 export function clearAuthUser() {
@@ -16,6 +22,7 @@ export function clearAuthUser() {
   }
 
   window.localStorage.removeItem(USER_STORAGE_KEY);
+  notifyAuthUserChanged();
 }
 
 export function getStoredAuthUser(): AuthUser | null {
