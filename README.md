@@ -39,15 +39,7 @@ Windows:
 ```bash
 cd backend
 python -m venv .venv
-.venv\Scripts\Activate.ps1
-```
-
-Windows (Command Prompt alternative):
-
-```bat
-cd backend
-python -m venv .venv
-.venv\Scripts\activate.bat
+.venv\Scripts\Activate
 ```
 
 Install Python dependencies (same command on Linux/macOS and Windows):
@@ -270,20 +262,13 @@ Backend (Windows PowerShell):
 
 ```powershell
 cd backend
-.venv\Scripts\Activate.ps1
+.venv\Scripts\Activate
 python manage.py runserver
 ```
 
-Frontend (Linux/macOS):
+Frontend (All platforms):
 
 ```bash
-cd frontend
-npm run dev
-```
-
-Frontend (Windows PowerShell):
-
-```powershell
 cd frontend
 npm run dev
 ```
