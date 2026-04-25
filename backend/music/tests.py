@@ -108,6 +108,50 @@ class SongCUDViewTests(TestCase):
             ["friend@example.com", "team@example.com"],
         )
 
+    def test_update_album_share_success(self):
+        response = self.client.patch(
+            reverse("update_album", kwargs={"album_id": self.album.album_id}),
+            data={
+                "privacy_level": PrivacyLevel.INVITE_ONLY,
+                "invited_emails": ["Friend@Example.com", "friend@example.com"],
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.album.refresh_from_db()
+        self.assertEqual(self.album.privacy_level, PrivacyLevel.INVITE_ONLY)
+        self.assertEqual(self.album.invited_emails, ["friend@example.com"])
+        self.assertEqual(response.json()["invited_emails"], ["friend@example.com"])
+
+    def test_shared_album_invite_only_allows_invited_email(self):
+        self.album.privacy_level = PrivacyLevel.INVITE_ONLY
+        self.album.invited_emails = ["friend@example.com"]
+        self.album.save(update_fields=["privacy_level", "invited_emails"])
+        self.song.albums.add(self.album)
+
+        response = self.client.get(
+            reverse("shared_album", kwargs={"album_id": self.album.album_id}),
+            data={"email": "friend@example.com"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["album"]["album_id"], self.album.album_id)
+        self.assertEqual(len(payload["songs"]), 1)
+
+    def test_shared_album_invite_only_blocks_uninvited_email(self):
+        self.album.privacy_level = PrivacyLevel.INVITE_ONLY
+        self.album.invited_emails = ["friend@example.com"]
+        self.album.save(update_fields=["privacy_level", "invited_emails"])
+
+        response = self.client.get(
+            reverse("shared_album", kwargs={"album_id": self.album.album_id}),
+            data={"email": "stranger@example.com"},
+        )
+
+        self.assertEqual(response.status_code, 403)
+
     def test_shared_song_invite_only_allows_invited_email(self):
         self.song.privacy_level = PrivacyLevel.INVITE_ONLY
         self.song.save(update_fields=["privacy_level"])
@@ -342,6 +386,78 @@ class SongGeneratorStrategyTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["error"], "No generation credits remaining")
         self.assertFalse(Song.objects.filter(title="Study Session").exists())
+
+    @override_settings(GENERATOR_STRATEGY="suno")
+    def test_generate_song_falls_back_to_mock_when_suno_generate_fails(self):
+        user = EndUser.objects.create(
+            name="Fallback User",
+            email="fallback@example.com",
+            generation_quota=10,
+        )
+        payload = {
+            "prompt": "A calm piano melody",
+            "title": "Fallback Session",
+            "genre": "Ambient",
+            "mood": "Calm",
+            "creator_id": user.user_id,
+        }
+
+        with patch(
+            "music.generation.suno_generator.SunoSongGeneratorStrategy.generate",
+            side_effect=RuntimeError("Suno unavailable"),
+        ):
+            response = self.client.post(
+                reverse("generate_song"),
+                data=payload,
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual(data["generation_status"], GenerationStatus.COMPLETED)
+        self.assertEqual(
+            data["audio_file_path"],
+            "https://samplelib.com/lib/preview/mp3/sample-3s.mp3",
+        )
+        user.refresh_from_db()
+        self.assertEqual(user.generation_quota, 9)
+
+    @override_settings(GENERATOR_STRATEGY="suno")
+    def test_generation_status_falls_back_to_mock_when_suno_status_fails(self):
+        user = EndUser.objects.create(
+            name="Status Fallback User",
+            email="status-fallback@example.com",
+            generation_quota=10,
+        )
+        song = Song.objects.create(
+            title="Pending Fallback Song",
+            description="Waiting on provider",
+            audio_file_path="",
+            generation_task_id="suno-task-fallback",
+            generation_status=GenerationStatus.PENDING,
+            genre="Ambient",
+            mood="Calm",
+            occasion="Study",
+            creator=user,
+        )
+
+        with patch(
+            "music.generation.suno_generator.SunoSongGeneratorStrategy.get_status",
+            side_effect=RuntimeError("Suno status unavailable"),
+        ):
+            response = self.client.get(
+                reverse("generation_status", kwargs={"task_id": "suno-task-fallback"})
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        song.refresh_from_db()
+        self.assertEqual(data["generation_status"], GenerationStatus.COMPLETED)
+        self.assertEqual(song.generation_status, GenerationStatus.COMPLETED)
+        self.assertEqual(
+            data["audio_file_path"],
+            "https://samplelib.com/lib/preview/mp3/sample-3s.mp3",
+        )
 
     @override_settings(GENERATOR_STRATEGY="mock")
     def test_generate_song_requires_some_user_if_creator_missing(self):

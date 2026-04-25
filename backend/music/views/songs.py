@@ -4,6 +4,7 @@ from django.views.decorators.csrf import csrf_exempt
 from music.models import Album, EndUser, GenerationStatus, Song
 
 from ..generation.factory import SongGeneratorContext
+from ..generation.mock_generator import MockSongGeneratorStrategy
 from .shared import (
     _get_albums,
     _get_creator,
@@ -18,6 +19,26 @@ from .shared import (
     _sync_song_shared_link,
     _update_song_from_generation,
 )
+
+
+def _is_suno_generator(generator):
+    return generator.__class__.__name__ == "SunoSongGeneratorStrategy"
+
+
+def _mock_request_data_for_song(song):
+    return {
+        "prompt": song.description,
+        "title": song.title,
+        "genre": song.genre,
+        "mood": song.mood,
+    }
+
+
+def _mock_generate_song(song):
+    result = MockSongGeneratorStrategy().generate(_mock_request_data_for_song(song))
+    _update_song_from_generation(song, result)
+    song.refresh_from_db()
+    return song
 
 
 @csrf_exempt
@@ -91,7 +112,13 @@ def generate_song(request):
     }
 
     try:
-        result = generator.generate(request_data)
+        try:
+            result = generator.generate(request_data)
+        except Exception:
+            if not _is_suno_generator(generator):
+                raise
+            result = MockSongGeneratorStrategy().generate(request_data)
+
         _update_song_from_generation(song, result)
         creator.generation_quota -= 1
         creator.save(update_fields=["generation_quota"])
@@ -117,8 +144,17 @@ def generation_status(request, task_id):
 
     generator = SongGeneratorContext().get_generator()
     try:
-        result = generator.get_status(task_id)
+        try:
+            result = generator.get_status(task_id)
+        except Exception:
+            if not _is_suno_generator(generator):
+                raise
+            _mock_generate_song(song)
+            return JsonResponse(_serialize_song(song))
+
         _update_song_from_generation(song, result)
+        if _is_suno_generator(generator) and song.generation_status == GenerationStatus.FAILED:
+            _mock_generate_song(song)
     except ValueError as exc:
         return _json_error(str(exc), 500)
     except Exception as exc:

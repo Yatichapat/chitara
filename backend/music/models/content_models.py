@@ -18,6 +18,7 @@ class Album(ShareableContent):
         choices=PrivacyLevel.choices,
         default=PrivacyLevel.PRIVATE,
     )
+    invited_emails = models.JSONField(default=list, blank=True)
 
     creator = models.ForeignKey(
         EndUser,

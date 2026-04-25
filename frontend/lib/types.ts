@@ -28,6 +28,7 @@ export interface Album {
   name: string;
   created_date: string;
   privacy_level: PrivacyLevel;
+  invited_emails: string[];
   creator_id: number;
   song_count: number;
 }
@@ -40,6 +41,11 @@ export interface SongsResponse {
 
 export interface AlbumsResponse {
   albums: Album[];
+}
+
+export interface SharedAlbumResponse {
+  album: Album;
+  songs: Song[];
 }
 
 export interface GenerateRequest {

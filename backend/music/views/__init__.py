@@ -1,4 +1,4 @@
-from .albums import albums
+from .albums import albums, shared_album, update_album
 from .auth import (
     _exchange_google_code,
     _google_oauth_url,
@@ -40,8 +40,10 @@ __all__ = [
     "home",
     "id_token",
     "requests",
+    "shared_album",
     "shared_song",
     "SongGeneratorContext",
+    "update_album",
     "update_song",
     "user",
 ]

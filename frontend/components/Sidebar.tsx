@@ -13,6 +13,8 @@ import {
 } from "@/lib/auth";
 import type { AuthUser } from "@/lib/types";
 
+const DEFAULT_GENERATION_QUOTA = 10;
+
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -23,7 +25,10 @@ export default function Sidebar() {
 
   const isLoggedIn = Boolean(user);
   const quota = user?.generation_quota ?? 0;
-  const quotaPercent = useMemo(() => Math.min(100, Math.max(0, (quota / 20) * 100)), [quota]);
+  const quotaPercent = useMemo(
+    () => Math.min(100, Math.max(0, (quota / DEFAULT_GENERATION_QUOTA) * 100)),
+    [quota],
+  );
 
   useEffect(() => {
     function syncStoredUser() {
@@ -129,7 +134,9 @@ export default function Sidebar() {
             </div>
             <div className="flex justify-between items-center mb-2">
               <span className="text-sm font-semibold text-cafe-800">Generations Left</span>
-              <span className="text-cafe-600 font-bold text-lg">{quota}</span>
+              <span className="text-cafe-600 font-bold text-lg">
+                {quota}/{DEFAULT_GENERATION_QUOTA}
+              </span>
             </div>
             {/* Visual Quota Bar */}
             <div className="h-2 w-full bg-cafe-200 rounded-full overflow-hidden mb-4">

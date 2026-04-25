@@ -1,7 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Plus, BookOpen, Music, Globe, Users, Lock, Check } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Plus,
+  BookOpen,
+  Music,
+  Globe,
+  Users,
+  Lock,
+  Check,
+  MoreVertical,
+  Link2,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import Link from "next/link";
 import Modal from "@/components/Modal";
 import { getStoredAuthUser } from "@/lib/auth";
@@ -38,50 +50,253 @@ function PlaylistCard({
   name,
   meta,
   privacyLevel,
+  invitedEmails = [],
   isLibrary = false,
+  albumId,
+  onUpdateShare,
 }: {
   href: string;
   name: string;
   meta: string;
   privacyLevel?: PrivacyLevel;
+  invitedEmails?: string[];
   isLibrary?: boolean;
+  albumId?: number;
+  onUpdateShare?: (
+    albumId: number,
+    privacyLevel: PrivacyLevel,
+    invitedEmails: string[],
+  ) => Promise<void>;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuView, setMenuView] = useState<"root" | "share">("root");
+  const [currentPrivacy, setCurrentPrivacy] = useState<PrivacyLevel>(privacyLevel || "private");
+  const [inviteEmailText, setInviteEmailText] = useState(invitedEmails.join(", "));
+  const [isUpdatingShare, setIsUpdatingShare] = useState(false);
+  const [isSavingInvites, setIsSavingInvites] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const PrivacyIcon = privacyLevel
     ? PRIVACY_OPTIONS.find((option) => option.value === privacyLevel)?.icon
     : undefined;
+  const CurrentPrivacyIcon =
+    PRIVACY_OPTIONS.find((option) => option.value === currentPrivacy)?.icon ?? Lock;
 
-  return (
-    <Link
-      href={href}
-      className="group bg-white border border-cafe-100 rounded-2xl p-6 flex flex-col gap-4 hover:shadow-md hover:border-cafe-300 transition-all"
-    >
-      {/* Cover placeholder */}
-      <div
-        className={`w-full aspect-square rounded-xl flex items-center justify-center ${
-          isLibrary ? "bg-cafe-200" : "bg-cafe-100"
-        } border border-cafe-200 group-hover:border-cafe-300 transition-colors`}
-      >
-        {isLibrary ? (
-          <BookOpen size={40} className="text-cafe-500" />
-        ) : (
-          <Music size={40} className="text-cafe-400" />
+  useEffect(() => {
+    setCurrentPrivacy(privacyLevel || "private");
+  }, [privacyLevel]);
+
+  useEffect(() => {
+    setInviteEmailText(invitedEmails.join(", "));
+  }, [invitedEmails]);
+
+  useEffect(() => {
+    function handler(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+        setTimeout(() => setMenuView("root"), 150);
+      }
+    }
+
+    if (menuOpen) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
+
+  function parseInviteEmails() {
+    const seen = new Set<string>();
+    return inviteEmailText
+      .split(/[\n,]+/)
+      .map((email) => email.trim().toLowerCase())
+      .filter((email) => {
+        if (!email || seen.has(email)) {
+          return false;
+        }
+        seen.add(email);
+        return true;
+      });
+  }
+
+  async function handleUpdateShare(nextPrivacy: PrivacyLevel) {
+    if (!albumId || !onUpdateShare || isUpdatingShare) {
+      setCurrentPrivacy(nextPrivacy);
+      return;
+    }
+
+    const previousPrivacy = currentPrivacy;
+    setCurrentPrivacy(nextPrivacy);
+    setIsUpdatingShare(true);
+    try {
+      await onUpdateShare(albumId, nextPrivacy, parseInviteEmails());
+    } catch {
+      setCurrentPrivacy(previousPrivacy);
+    } finally {
+      setIsUpdatingShare(false);
+    }
+  }
+
+  async function handleSaveInvites() {
+    if (!albumId || !onUpdateShare || isSavingInvites) return;
+
+    setIsSavingInvites(true);
+    try {
+      await onUpdateShare(albumId, "invite_only", parseInviteEmails());
+      setCurrentPrivacy("invite_only");
+    } finally {
+      setIsSavingInvites(false);
+    }
+  }
+
+  function handleCopyAlbumLink() {
+    const origin =
+      typeof window !== "undefined" && window.location.origin
+        ? window.location.origin
+        : "https://chitara.app";
+    navigator.clipboard.writeText(`${origin}/share/album/${albumId ?? "demo"}`);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  }
+
+  const albumMenu =
+    !isLibrary && albumId ? (
+      <div className="relative shrink-0 -mr-1" ref={menuRef}>
+        <button
+          type="button"
+          onClick={() => {
+            setMenuOpen((open) => !open);
+            setMenuView("root");
+          }}
+          className="p-1.5 text-cafe-400 hover:text-cafe-800 hover:bg-cafe-50 rounded-full transition-colors"
+          aria-label="Album options"
+        >
+          <MoreVertical size={18} />
+        </button>
+
+        {menuOpen && (
+          <div className="absolute right-0 top-full mt-2 w-60 bg-white border border-cafe-100 rounded-2xl shadow-xl z-50 overflow-hidden">
+            {menuView === "root" && (
+              <div className="p-1.5">
+                <button
+                  type="button"
+                  onClick={() => setMenuView("share")}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm text-cafe-700 rounded-xl hover:bg-cafe-50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <CurrentPrivacyIcon size={16} className="text-cafe-500" />
+                    Share Album
+                  </span>
+                  <ChevronRight size={14} className="text-cafe-400" />
+                </button>
+              </div>
+            )}
+
+            {menuView === "share" && (
+              <div className="p-1.5">
+                <button
+                  type="button"
+                  onClick={() => setMenuView("root")}
+                  className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-cafe-500 hover:text-cafe-800 transition-colors mb-1"
+                >
+                  <ChevronLeft size={14} />
+                  Album share options
+                </button>
+
+                {PRIVACY_OPTIONS.map(({ value, label, icon: Icon }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => void handleUpdateShare(value)}
+                    disabled={isUpdatingShare}
+                    className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm rounded-xl hover:bg-cafe-50 transition-colors ${
+                      currentPrivacy === value
+                        ? "text-cafe-900 font-semibold"
+                        : "text-cafe-700"
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Icon size={16} className="text-cafe-500" />
+                      {label}
+                    </span>
+                    {currentPrivacy === value && <Check size={14} className="text-cafe-700" />}
+                  </button>
+                ))}
+
+                <div className="my-1 border-t border-cafe-100" />
+
+                {currentPrivacy === "invite_only" && (
+                  <div className="px-3 py-2">
+                    <label className="block text-xs font-semibold text-cafe-500 mb-1.5">
+                      Invited emails
+                    </label>
+                    <textarea
+                      value={inviteEmailText}
+                      onChange={(event) => setInviteEmailText(event.target.value)}
+                      placeholder="friend@example.com, team@example.com"
+                      rows={3}
+                      className="w-full resize-none rounded-xl border border-cafe-200 bg-cafe-50 px-3 py-2 text-xs text-cafe-900 placeholder:text-cafe-400 focus:outline-none focus:ring-2 focus:ring-cafe-300"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveInvites}
+                      disabled={isSavingInvites}
+                      className="mt-2 w-full py-2 text-xs font-semibold rounded-xl bg-cafe-800 text-cafe-50 hover:bg-cafe-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSavingInvites ? "Saving..." : "Save Invites"}
+                    </button>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleCopyAlbumLink}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-cafe-700 rounded-xl hover:bg-cafe-50 transition-colors"
+                >
+                  <Link2 size={16} className="text-cafe-500" />
+                  {isCopied ? (
+                    <span className="text-cafe-900 font-semibold">Link Copied!</span>
+                  ) : (
+                    "Copy Album Link"
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
+    ) : null;
 
-      <div>
-        <h3 className="flex items-center gap-2 font-bold text-cafe-900 group-hover:text-cafe-700 transition-colors min-w-0">
-          <span className="truncate">{name}</span>
-          {PrivacyIcon && (
-            <PrivacyIcon
-              size={15}
-              className="text-cafe-400 shrink-0"
-              aria-label={`${privacyLevel} album`}
-            />
+  return (
+    <div className="group relative bg-white border border-cafe-100 rounded-2xl p-6 flex flex-col gap-4 hover:shadow-md hover:border-cafe-300 transition-all">
+      <Link href={href} className="block min-w-0">
+        <div
+          className={`w-full aspect-square rounded-xl flex items-center justify-center ${
+            isLibrary ? "bg-cafe-200" : "bg-cafe-100"
+          } border border-cafe-200 group-hover:border-cafe-300 transition-colors`}
+        >
+          {isLibrary ? (
+            <BookOpen size={40} className="text-cafe-500" />
+          ) : (
+            <Music size={40} className="text-cafe-400" />
           )}
-        </h3>
-        <p className="text-cafe-500 text-sm mt-1">{meta}</p>
+        </div>
+      </Link>
+
+      <div className="flex items-start justify-between gap-2 min-w-0">
+        <Link href={href} className="min-w-0 flex-1">
+          <h3 className="flex items-center gap-2 font-bold text-cafe-900 group-hover:text-cafe-700 transition-colors min-w-0">
+            <span className="truncate">{name}</span>
+            {PrivacyIcon && (
+              <PrivacyIcon
+                size={15}
+                className="text-cafe-400 shrink-0"
+                aria-label={`${privacyLevel} album`}
+              />
+            )}
+          </h3>
+          <p className="text-cafe-500 text-sm mt-1">{meta}</p>
+        </Link>
+        {albumMenu}
       </div>
-    </Link>
+    </div>
   );
 }
 
@@ -182,6 +397,32 @@ export default function PlaylistsPage() {
     }
   };
 
+  async function handleUpdateAlbumShare(
+    albumId: number,
+    privacyLevel: PrivacyLevel,
+    invitedEmails: string[],
+  ) {
+    const response = await fetch(`/api/albums/${albumId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        privacy_level: privacyLevel,
+        invited_emails: invitedEmails,
+      }),
+    });
+
+    const payload = (await response.json()) as Album & ApiError;
+    if (!response.ok) {
+      throw new Error(payload.error || "Failed to update album share option.");
+    }
+
+    setAlbums((current) =>
+      current.map((album) => (album.album_id === albumId ? payload : album)),
+    );
+  }
+
   return (
     <div className="w-full max-w-7xl mx-auto pb-24">
       <header className="mb-8 flex items-center justify-between gap-6">
@@ -228,6 +469,20 @@ export default function PlaylistsPage() {
             name={album.name}
             meta={`${album.song_count} song${album.song_count !== 1 ? "s" : ""} · ${formatDate(album.created_date)}`}
             privacyLevel={album.privacy_level}
+            invitedEmails={album.invited_emails || []}
+            albumId={album.album_id}
+            onUpdateShare={async (albumId, privacyLevel, invitedEmails) => {
+              try {
+                await handleUpdateAlbumShare(albumId, privacyLevel, invitedEmails);
+              } catch (requestError) {
+                const message =
+                  requestError instanceof Error
+                    ? requestError.message
+                    : "Failed to update album share option.";
+                setError(message);
+                throw requestError;
+              }
+            }}
           />
         ))}
       </div>

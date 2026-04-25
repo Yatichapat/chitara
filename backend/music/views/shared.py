@@ -100,6 +100,7 @@ def _serialize_album(album):
         "name": album.name,
         "created_date": album.created_date.isoformat(),
         "privacy_level": album.privacy_level,
+        "invited_emails": album.invited_emails or [],
         "creator_id": album.creator_id,
         "song_count": album.songs.count(),
     }
